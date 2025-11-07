@@ -171,6 +171,22 @@
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
 }
 
+.shift-cell.fixed {
+  border: 3px solid #000000;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2);
+  cursor: not-allowed;
+}
+
+.shift-cell.fixed:hover {
+  opacity: 1;
+  transform: none;
+}
+
+/* 주 구분선 (일요일 왼쪽) */
+.week-start {
+  border-left: 3px solid #000000 !important;
+}
+
 .stats-header {
   background-color: #f3f4f6;
   font-weight: 600;
@@ -212,15 +228,39 @@
 }
 
 .daily-count.status-error {
-  background-color: #fee2e2;
-  color: #991b1b;
+  background-color: #dc2626;
+  color: #ffffff;
   font-weight: 700;
+  border: 3px solid #991b1b;
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.4);
+  animation: pulse-error 2s ease-in-out infinite;
 }
 
 .daily-count.status-warning {
-  background-color: #fef3c7;
-  color: #92400e;
+  background-color: #f59e0b;
+  color: #ffffff;
   font-weight: 700;
+  border: 3px solid #d97706;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.4);
+  animation: pulse-warning 2s ease-in-out infinite;
+}
+
+@keyframes pulse-error {
+  0%, 100% {
+    box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(220, 38, 38, 0.2);
+  }
+}
+
+@keyframes pulse-warning {
+  0%, 100% {
+    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.2);
+  }
 }
 
 .daily-count.status-ok {

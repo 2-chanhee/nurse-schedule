@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import type { Nurse, ScheduleCell, ShiftType } from '../types';
-import { SHIFT_TYPE_LABELS, DAY_OF_WEEK_LABELS } from '../types';
+import { SHIFT_TYPE_LABELS, SHIFT_TYPE_SHORT_LABELS, DAY_OF_WEEK_LABELS } from '../types';
 import { SHIFT_COLORS, SHIFT_CYCLE } from '../constants';
 import { validateSchedule } from '../utils/validator';
 import { generateSimpleSchedule } from '../utils/scheduler';
@@ -54,14 +54,19 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
 
   // 셀 클릭 핸들러 (근무 타입 순환)
   const handleCellClick = (nurseId: string, date: string) => {
+    const existingCell = schedule.find(
+      (s) => s.nurseId === nurseId && s.date === date
+    );
+
+    // 고정된 셀은 변경 불가
+    if (existingCell?.isFixed) {
+      return;
+    }
+
     const currentType = getShiftType(nurseId, date);
     const currentIndex = SHIFT_CYCLE.indexOf(currentType);
     const nextIndex = (currentIndex + 1) % SHIFT_CYCLE.length;
     const nextType = SHIFT_CYCLE[nextIndex];
-
-    const existingCell = schedule.find(
-      (s) => s.nurseId === nurseId && s.date === date
-    );
 
     if (existingCell) {
       setSchedule(
@@ -161,7 +166,7 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
             총 {dateList.length}일
           </div>
           <button onClick={handleAutoGenerate} className="btn-auto-generate">
-            자동 생성
+            {schedule.length > 0 ? '재생성' : '자동 생성'}
           </button>
         </div>
       </div>
@@ -175,9 +180,10 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
                 const dateStr = date.toISOString().split('T')[0];
                 const dayOfWeek = getDayOfWeek(date);
                 const isWE = isWeekend(date);
+                const isWeekStart = date.getDay() === 0; // 일요일
 
                 return (
-                  <th key={dateStr} className={isWE ? 'weekend' : ''}>
+                  <th key={dateStr} className={`${isWE ? 'weekend' : ''} ${isWeekStart ? 'week-start' : ''}`}>
                     <div className="date-cell">
                       <div className="date-number">{date.getDate()}</div>
                       <div className="date-day">{DAY_OF_WEEK_LABELS[dayOfWeek as keyof typeof DAY_OF_WEEK_LABELS]}</div>
@@ -189,9 +195,12 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
             </tr>
             <tr>
               <th></th>
-              {dateList.map((date) => (
-                <th key={date.toISOString().split('T')[0]}></th>
-              ))}
+              {dateList.map((date) => {
+                const isWeekStart = date.getDay() === 0; // 일요일
+                return (
+                  <th key={date.toISOString().split('T')[0]} className={isWeekStart ? 'week-start' : ''}></th>
+                );
+              })}
               <th className="stat-label">D</th>
               <th className="stat-label">E</th>
               <th className="stat-label">N</th>
@@ -217,19 +226,30 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
                     // 이 셀에 위반이 있는지 확인
                     const hasViolation = nurseViolations.some((v) => v.date === dateStr);
 
+                    // 고정된 셀인지 확인
+                    const cell = schedule.find(
+                      (s) => s.nurseId === nurse.id && s.date === dateStr
+                    );
+                    const isFixed = cell?.isFixed || false;
+
+                    // 주 구분선 (일요일이면 왼쪽에 굵은 선)
+                    const isWeekStart = date.getDay() === 0; // 0 = 일요일
+
                     return (
                       <td
                         key={dateStr}
-                        className={`shift-cell ${hasViolation ? 'violation' : ''}`}
+                        className={`shift-cell ${hasViolation ? 'violation' : ''} ${isFixed ? 'fixed' : ''} ${isWeekStart ? 'week-start' : ''}`}
                         style={{ backgroundColor: SHIFT_COLORS[shiftType] }}
                         onClick={() => handleCellClick(nurse.id, dateStr)}
                         title={
                           hasViolation
                             ? nurseViolations.find((v) => v.date === dateStr)?.message
+                            : isFixed
+                            ? `${SHIFT_TYPE_LABELS[shiftType]} (고정)`
                             : SHIFT_TYPE_LABELS[shiftType]
                         }
                       >
-                        {shiftType !== 'OFF' ? SHIFT_TYPE_LABELS[shiftType][0] : ''}
+                        {SHIFT_TYPE_SHORT_LABELS[shiftType]}
                       </td>
                     );
                   })}
@@ -250,9 +270,10 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
                 const dateStr = date.toISOString().split('T')[0];
                 const count = getDailyCount(dateStr, 'D');
                 const status = validationResult.dailyStaffStatus[dateStr]?.['D'] || 'ok';
+                const isWeekStart = date.getDay() === 0; // 일요일
                 return (
-                  <td key={dateStr} className={`daily-count status-${status}`}>
-                    {count || ''}
+                  <td key={dateStr} className={`daily-count status-${status} ${isWeekStart ? 'week-start' : ''}`}>
+                    {count}
                   </td>
                 );
               })}
@@ -264,9 +285,10 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
                 const dateStr = date.toISOString().split('T')[0];
                 const count = getDailyCount(dateStr, 'M');
                 const status = validationResult.dailyStaffStatus[dateStr]?.['M'] || 'ok';
+                const isWeekStart = date.getDay() === 0; // 일요일
                 return (
-                  <td key={dateStr} className={`daily-count status-${status}`}>
-                    {count || ''}
+                  <td key={dateStr} className={`daily-count status-${status} ${isWeekStart ? 'week-start' : ''}`}>
+                    {count}
                   </td>
                 );
               })}
@@ -278,9 +300,10 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
                 const dateStr = date.toISOString().split('T')[0];
                 const count = getDailyCount(dateStr, 'E');
                 const status = validationResult.dailyStaffStatus[dateStr]?.['E'] || 'ok';
+                const isWeekStart = date.getDay() === 0; // 일요일
                 return (
-                  <td key={dateStr} className={`daily-count status-${status}`}>
-                    {count || ''}
+                  <td key={dateStr} className={`daily-count status-${status} ${isWeekStart ? 'week-start' : ''}`}>
+                    {count}
                   </td>
                 );
               })}
@@ -292,9 +315,10 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
                 const dateStr = date.toISOString().split('T')[0];
                 const count = getDailyCount(dateStr, 'N');
                 const status = validationResult.dailyStaffStatus[dateStr]?.['N'] || 'ok';
+                const isWeekStart = date.getDay() === 0; // 일요일
                 return (
-                  <td key={dateStr} className={`daily-count status-${status}`}>
-                    {count || ''}
+                  <td key={dateStr} className={`daily-count status-${status} ${isWeekStart ? 'week-start' : ''}`}>
+                    {count}
                   </td>
                 );
               })}

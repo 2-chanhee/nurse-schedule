@@ -55,6 +55,18 @@ export const SHIFT_TYPE_LABELS: Record<ShiftType, string> = {
   MENSTRUAL: '생휴',
 };
 
+// 스케줄 표 셀에 표시할 짧은 레이블
+export const SHIFT_TYPE_SHORT_LABELS: Record<ShiftType, string> = {
+  D: 'D',
+  M: 'M',
+  E: 'E',
+  N: 'N',
+  OFF: 'OFF',
+  WEEK_OFF: 'WO',
+  ANNUAL: 'A',
+  MENSTRUAL: '생휴',
+};
+
 // 요일 한글명 매핑
 export const DAY_OF_WEEK_LABELS: Record<DayOfWeek, string> = {
   SUN: '일',

@@ -33,16 +33,16 @@ export const SHIFT_ORDER: ShiftType[] = ['D', 'M', 'E', 'N'];
 // 셀 클릭 시 순환 순서
 export const SHIFT_CYCLE: ShiftType[] = ['D', 'M', 'E', 'N', 'OFF', 'WEEK_OFF', 'ANNUAL'];
 
-// 근무 타입 색상 (CSS class명)
+// 근무 타입 색상 (색약 고려 - 명확한 구분을 위한 대비 강화)
 export const SHIFT_COLORS: Record<ShiftType, string> = {
-  D: '#4ade80',      // 초록 (데이)
-  M: '#fb7185',      // 분홍 (중간)
-  E: '#60a5fa',      // 파랑 (이브닝)
-  N: '#4b5563',      // 회색 (나이트)
-  OFF: '#e5e7eb',    // 연한 회색 (오프)
-  WEEK_OFF: '#fbbf24', // 노란 (주휴)
-  ANNUAL: '#f59e0b', // 주황 (연차)
-  MENSTRUAL: '#ec4899', // 핑크 (생휴)
+  D: '#fbbf24',      // 밝은 노란색 (데이)
+  M: '#ec4899',      // 진한 분홍색 (중간)
+  E: '#3b82f6',      // 진한 파란색 (이브닝)
+  N: '#9333ea',      // 진한 자주색 (나이트) - 파란색과 구분
+  OFF: '#f97316',    // 진한 주황색 (오프)
+  WEEK_OFF: '#f97316', // 진한 주황색 (주휴)
+  ANNUAL: '#f97316', // 진한 주황색 (연차)
+  MENSTRUAL: '#f97316', // 진한 주황색 (생휴)
 };
 
 // 기본 간호사 수

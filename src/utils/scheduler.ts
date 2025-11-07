@@ -1,5 +1,14 @@
-import type { Nurse, ScheduleCell, ShiftType } from '../types';
+import type { Nurse, ScheduleCell, ShiftType, DayOfWeek } from '../types';
 import { DAILY_REQUIRED_STAFF, SHIFT_ORDER, MAX_CONSECUTIVE_WORK_DAYS } from '../constants';
+
+/**
+ * Date 객체의 getDay() 결과를 DayOfWeek 타입으로 변환
+ * getDay(): 0(일) ~ 6(토)
+ */
+function getDayOfWeek(date: Date): DayOfWeek {
+  const dayMap: DayOfWeek[] = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+  return dayMap[date.getDay()];
+}
 
 /**
  * 간단한 자동 스케줄 생성
@@ -50,7 +59,7 @@ export function generateSimpleSchedule(
     // 사용 가능한 간호사 목록 (근무 카운트로 정렬 + 랜덤 섞기)
     const availableNurses = [...nurses].sort((a, b) => {
       const countDiff = workCount[a.id] - workCount[b.id];
-      // 근무 카운트가 같으면 랜덤하게
+      // 근무 카운트가 같으면 랜덤하게 (매번 다른 스케줄)
       if (countDiff === 0) {
         return Math.random() - 0.5;
       }
@@ -65,16 +74,29 @@ export function generateSimpleSchedule(
       return consecutiveWorkDays[nurseId] < MAX_CONSECUTIVE_WORK_DAYS;
     };
 
+    // 0. 주휴일 배정 (최우선)
+    const todayDayOfWeek = getDayOfWeek(new Date(date));
+    for (const nurse of nurses) {
+      if (nurse.weekOffDay === todayDayOfWeek) {
+        schedule.push({
+          nurseId: nurse.id,
+          date,
+          shiftType: 'WEEK_OFF',
+          isFixed: true, // 주휴일은 고정
+        });
+        assignedNurses.add(nurse.id);
+        todayShift[nurse.id] = 'WEEK_OFF';
+      }
+    }
+
     // 1. 나이트 근무 배정 (2명)
     let nightCount = 0;
     for (const nurse of availableNurses) {
       if (nightCount >= DAILY_REQUIRED_STAFF.N) break;
       if (assignedNurses.has(nurse.id)) continue;
-      if (!canWork(nurse.id)) continue; // 연속 근무일 제한 체크
+      if (!canWork(nurse.id)) continue;
 
       const last = lastShift[nurse.id];
-      // 나이트는 D → M → E → N 순서를 따라야 하므로
-      // 이전 근무가 E, N이거나 없거나 휴일이면 가능
       if (!last || last === 'OFF' || last === 'WEEK_OFF' ||
           last === 'ANNUAL' || last === 'MENSTRUAL' ||
           last === 'E' || last === 'N') {
@@ -96,10 +118,9 @@ export function generateSimpleSchedule(
     for (const nurse of availableNurses) {
       if (dayCount >= DAILY_REQUIRED_STAFF.D) break;
       if (assignedNurses.has(nurse.id)) continue;
-      if (!canWork(nurse.id)) continue; // 연속 근무일 제한 체크
+      if (!canWork(nurse.id)) continue;
 
       const last = lastShift[nurse.id];
-      // D는 처음이거나 휴일 후에만 가능
       if (!last || last === 'OFF' || last === 'WEEK_OFF' ||
           last === 'ANNUAL' || last === 'MENSTRUAL' || last === 'D') {
         schedule.push({
@@ -120,11 +141,13 @@ export function generateSimpleSchedule(
     for (const nurse of availableNurses) {
       if (middleCount >= DAILY_REQUIRED_STAFF.M) break;
       if (assignedNurses.has(nurse.id)) continue;
-      if (!canWork(nurse.id)) continue; // 연속 근무일 제한 체크
+      if (!canWork(nurse.id)) continue;
 
       const last = lastShift[nurse.id];
-      // M은 D 또는 M 다음에만 가능 (첫날은 예외)
-      if (!last || last === 'D' || last === 'M') {
+      // M은 휴일 후, D, M 다음 가능
+      if (!last || last === 'OFF' || last === 'WEEK_OFF' ||
+          last === 'ANNUAL' || last === 'MENSTRUAL' ||
+          last === 'D' || last === 'M') {
         schedule.push({
           nurseId: nurse.id,
           date,
@@ -143,11 +166,13 @@ export function generateSimpleSchedule(
     for (const nurse of availableNurses) {
       if (eveningCount >= DAILY_REQUIRED_STAFF.E) break;
       if (assignedNurses.has(nurse.id)) continue;
-      if (!canWork(nurse.id)) continue; // 연속 근무일 제한 체크
+      if (!canWork(nurse.id)) continue;
 
       const last = lastShift[nurse.id];
-      // E는 D, M, E 다음에 가능 (첫날은 예외)
-      if (!last || last === 'D' || last === 'M' || last === 'E') {
+      // E는 휴일 후, D, M, E 다음 가능
+      if (!last || last === 'OFF' || last === 'WEEK_OFF' ||
+          last === 'ANNUAL' || last === 'MENSTRUAL' ||
+          last === 'D' || last === 'M' || last === 'E') {
         schedule.push({
           nurseId: nurse.id,
           date,
