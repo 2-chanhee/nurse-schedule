@@ -1,35 +1,43 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useState } from 'react';
+import NurseManagement from './components/NurseManagement';
+import ScheduleView from './components/ScheduleView';
+import type { Nurse } from './types';
+import './App.css';
+
+type Tab = 'nurses' | 'schedule';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [nurses, setNurses] = useState<Nurse[]>([]);
+  const [activeTab, setActiveTab] = useState<Tab>('nurses');
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <div className="app">
+      <header className="app-header">
+        <h1>간호사 번표 자동 작성 프로그램</h1>
+        <nav className="app-tabs">
+          <button
+            className={`tab-button ${activeTab === 'nurses' ? 'active' : ''}`}
+            onClick={() => setActiveTab('nurses')}
+          >
+            간호사 관리
+          </button>
+          <button
+            className={`tab-button ${activeTab === 'schedule' ? 'active' : ''}`}
+            onClick={() => setActiveTab('schedule')}
+          >
+            스케줄 관리
+          </button>
+        </nav>
+      </header>
+
+      <main className="app-main">
+        {activeTab === 'nurses' && (
+          <NurseManagement nurses={nurses} onNursesChange={setNurses} />
+        )}
+        {activeTab === 'schedule' && <ScheduleView nurses={nurses} />}
+      </main>
+    </div>
+  );
 }
 
-export default App
+export default App;

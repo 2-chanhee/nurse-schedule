@@ -1,0 +1,240 @@
+.schedule-view {
+  padding: 20px;
+  max-width: 100%;
+  margin: 0 auto;
+  background-color: #f3f4f6;
+}
+
+.schedule-header {
+  background-color: white;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.schedule-header h2 {
+  margin: 0 0 15px 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.date-range {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.date-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.date-input-group label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #111827;
+}
+
+.date-input-group input[type="date"] {
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  background-color: white;
+  color: #111827;
+  cursor: pointer;
+}
+
+.date-input-group input[type="date"]:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.date-info {
+  font-size: 14px;
+  font-weight: 500;
+  color: #111827;
+  padding: 8px 12px;
+  background-color: #f3f4f6;
+  border-radius: 6px;
+}
+
+.btn-auto-generate {
+  padding: 8px 20px;
+  background-color: #10b981;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-auto-generate:hover {
+  background-color: #059669;
+}
+
+.schedule-table-container {
+  background-color: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  overflow-x: auto;
+}
+
+.schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.schedule-table th,
+.schedule-table td {
+  border: 1px solid #e5e7eb;
+  padding: 8px;
+  text-align: center;
+  min-width: 35px;
+  height: 35px;
+}
+
+.schedule-table thead th {
+  background-color: #f9fafb;
+  font-weight: 600;
+  color: #111827;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.nurse-name-header {
+  position: sticky;
+  left: 0;
+  z-index: 20;
+  background-color: #f9fafb;
+  min-width: 100px;
+  font-weight: 600;
+}
+
+.nurse-name {
+  position: sticky;
+  left: 0;
+  background-color: white;
+  font-weight: 500;
+  color: #111827;
+  z-index: 5;
+  border-right: 2px solid #d1d5db;
+}
+
+.date-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.date-number {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.date-day {
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.weekend .date-number,
+.weekend .date-day {
+  color: #ef4444;
+}
+
+.shift-cell {
+  cursor: pointer;
+  font-weight: 600;
+  color: white;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.shift-cell:hover {
+  opacity: 0.8;
+  transform: scale(1.05);
+}
+
+.shift-cell.violation {
+  border: 3px solid #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+}
+
+.stats-header {
+  background-color: #f3f4f6;
+  font-weight: 600;
+  color: #111827;
+}
+
+.stat-label {
+  background-color: #f9fafb;
+  font-weight: 600;
+  color: #111827;
+  min-width: 40px;
+}
+
+.stat-cell {
+  background-color: #fefefe;
+  font-weight: 500;
+  color: #111827;
+}
+
+.schedule-table tfoot td {
+  background-color: #f9fafb;
+  font-weight: 500;
+  color: #111827;
+}
+
+.footer-label {
+  position: sticky;
+  left: 0;
+  background-color: #f9fafb;
+  font-weight: 600;
+  color: #111827;
+  border-right: 2px solid #d1d5db;
+  z-index: 5;
+}
+
+.daily-count {
+  font-weight: 500;
+  color: #111827;
+}
+
+.daily-count.status-error {
+  background-color: #fee2e2;
+  color: #991b1b;
+  font-weight: 700;
+}
+
+.daily-count.status-warning {
+  background-color: #fef3c7;
+  color: #92400e;
+  font-weight: 700;
+}
+
+.daily-count.status-ok {
+  background-color: #d1fae5;
+  color: #065f46;
+  font-weight: 700;
+}
+
+.empty-message {
+  text-align: center;
+  color: #6b7280;
+  padding: 60px 20px;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  font-size: 16px;
+}
