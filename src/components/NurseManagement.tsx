@@ -21,6 +21,7 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
         id: `nurse-${i + 1}`,
         name: `간호사 ${i + 1}`,
         weekOffDay: DAYS_OF_WEEK[i % DAYS_OF_WEEK.length], // 라운드로빈
+        annualLeaveDates: [], // 연차 날짜 초기화
       });
     }
     onNursesChange(defaultNurses);
@@ -36,6 +37,7 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
       id: `nurse-${Date.now()}`,
       name: name.trim(),
       weekOffDay,
+      annualLeaveDates: [], // 연차 날짜 초기화
     };
 
     onNursesChange([...nurses, newNurse]);
@@ -59,6 +61,25 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
   const handleNameChange = (id: string, newName: string) => {
     const updatedNurses = nurses.map((nurse) =>
       nurse.id === id ? { ...nurse, name: newName } : nurse
+    );
+    onNursesChange(updatedNurses);
+  };
+
+  const handleAddAnnualLeave = (id: string, date: string) => {
+    if (!date) return;
+    const updatedNurses = nurses.map((nurse) =>
+      nurse.id === id
+        ? { ...nurse, annualLeaveDates: [...nurse.annualLeaveDates, date].sort() }
+        : nurse
+    );
+    onNursesChange(updatedNurses);
+  };
+
+  const handleRemoveAnnualLeave = (id: string, date: string) => {
+    const updatedNurses = nurses.map((nurse) =>
+      nurse.id === id
+        ? { ...nurse, annualLeaveDates: nurse.annualLeaveDates.filter((d) => d !== date) }
+        : nurse
     );
     onNursesChange(updatedNurses);
   };
@@ -114,6 +135,7 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
                 <th>번호</th>
                 <th>이름</th>
                 <th>주휴일</th>
+                <th>연차 신청</th>
                 <th>작업</th>
               </tr>
             </thead>
@@ -141,6 +163,35 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
                         </option>
                       ))}
                     </select>
+                  </td>
+                  <td>
+                    <div className="annual-leave-section">
+                      <div className="annual-leave-input">
+                        <input
+                          type="date"
+                          onChange={(e) => {
+                            handleAddAnnualLeave(nurse.id, e.target.value);
+                            e.target.value = ''; // 입력 후 초기화
+                          }}
+                          className="date-input"
+                        />
+                      </div>
+                      {nurse.annualLeaveDates.length > 0 && (
+                        <div className="annual-leave-list">
+                          {nurse.annualLeaveDates.map((date) => (
+                            <div key={date} className="annual-leave-item">
+                              <span>{date}</span>
+                              <button
+                                onClick={() => handleRemoveAnnualLeave(nurse.id, date)}
+                                className="btn-remove-date"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </td>
                   <td>
                     <button onClick={() => handleDelete(nurse.id)} className="btn-delete">

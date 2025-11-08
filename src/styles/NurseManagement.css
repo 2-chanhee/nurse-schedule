@@ -250,3 +250,75 @@
   border-color: #3b82f6;
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
+
+/* 연차 신청 섹션 */
+.annual-leave-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.annual-leave-input {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.date-input {
+  padding: 4px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: white;
+  color: #111827;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.date-input:hover {
+  border-color: #3b82f6;
+}
+
+.date-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.annual-leave-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.annual-leave-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background-color: #dbeafe;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #1e40af;
+}
+
+.annual-leave-item span {
+  font-weight: 500;
+}
+
+.btn-remove-date {
+  background: none;
+  border: none;
+  color: #1e40af;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.btn-remove-date:hover {
+  color: #dc2626;
+}

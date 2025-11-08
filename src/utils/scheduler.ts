@@ -61,6 +61,12 @@ export function generateSimpleSchedule(
     weeklyOffCount[nurse.id] = 0;
   });
 
+  // 각 간호사의 나이트 블록 진행 상태 (0: 나이트 아님, 1: 1일차, 2: 2일차, 3: 3일차)
+  const nightBlockStatus: Record<string, number> = {};
+  nurses.forEach((nurse) => {
+    nightBlockStatus[nurse.id] = 0;
+  });
+
   // 각 날짜별로 스케줄 생성
   dates.forEach((date, dateIndex) => {
     const dayOfWeek = new Date(date).getDay(); // 0 = 일요일
@@ -120,6 +126,20 @@ export function generateSimpleSchedule(
       }
     }
 
+    // 0-1. 연차 배정 (고정)
+    for (const nurse of nurses) {
+      if (nurse.annualLeaveDates && nurse.annualLeaveDates.includes(date)) {
+        schedule.push({
+          nurseId: nurse.id,
+          date,
+          shiftType: 'ANNUAL',
+          isFixed: true, // 연차는 고정
+        });
+        assignedNurses.add(nurse.id);
+        todayShift[nurse.id] = 'ANNUAL';
+      }
+    }
+
     // 1. 데이 근무 배정 (3명) - 최우선 배정
     let dayCount = 0;
     for (const nurse of getAvailableNurses()) {
@@ -174,18 +194,18 @@ export function generateSimpleSchedule(
       }
     }
 
-    // 3. 나이트 근무 배정 (2명) - 3순위 (조건이 제한적이므로 E보다 먼저)
+    // 3. 나이트 근무 배정 (2명) - 나이트 블록 관리 (2-3일 연속)
     let nightCount = 0;
-    for (const nurse of getAvailableNurses()) {
+
+    // 3-1. 이미 나이트 중인 간호사 우선 처리 (연속성 유지)
+    for (const nurse of nurses) {
       if (nightCount >= DAILY_REQUIRED_STAFF.N) break;
       if (assignedNurses.has(nurse.id)) continue;
-      if (!canWork(nurse.id)) continue;
 
-      const last = lastShift[nurse.id];
-      // N은 휴일 후, E, N 다음 가능
-      if (!last || last === 'OFF' || last === 'WEEK_OFF' ||
-          last === 'ANNUAL' || last === 'MENSTRUAL' ||
-          last === 'E' || last === 'N') {
+      const status = nightBlockStatus[nurse.id];
+
+      if (status === 1) {
+        // 나이트 1일차 -> 반드시 2일차 계속
         schedule.push({
           nurseId: nurse.id,
           date,
@@ -196,6 +216,77 @@ export function generateSimpleSchedule(
         todayShift[nurse.id] = 'N';
         workCount[nurse.id]++;
         nightCount++;
+        nightBlockStatus[nurse.id] = 2; // 2일차로 전환
+      } else if (status === 2) {
+        // 나이트 2일차 -> 마지막 날이거나 N이 부족하면 무조건 3일차, 아니면 70% 확률로 3일차
+        const isLastDay = dateIndex === dates.length - 1;
+        const needMoreNight = nightCount < DAILY_REQUIRED_STAFF.N;
+        const continueToDay3 = isLastDay || needMoreNight || (randomize ? Math.random() < 0.7 : true);
+        if (continueToDay3) {
+          schedule.push({
+            nurseId: nurse.id,
+            date,
+            shiftType: 'N',
+            isFixed: false,
+          });
+          assignedNurses.add(nurse.id);
+          todayShift[nurse.id] = 'N';
+          workCount[nurse.id]++;
+          nightCount++;
+          nightBlockStatus[nurse.id] = 3; // 3일차로 전환
+        } else {
+          nightBlockStatus[nurse.id] = 0; // 나이트 종료
+        }
+      }
+      // status === 3이면 반드시 종료 (아무것도 안 함, 아래서 0으로 리셋됨)
+    }
+
+    // 3-2. 부족한 만큼 새로운 나이트 시작 (1일차)
+    // 단, 최소 2일이 남아있어야 나이트 시작 가능
+    // 예외: 마지막 날에 N이 부족하면 1일 나이트도 허용 (긴급 조치)
+    const daysRemaining = dates.length - dateIndex;
+    const isLastDay = dateIndex === dates.length - 1;
+    const canStartNewNight = daysRemaining >= 2 || (isLastDay && nightCount < DAILY_REQUIRED_STAFF.N);
+
+    if (canStartNewNight) {
+      for (const nurse of getAvailableNurses()) {
+        if (nightCount >= DAILY_REQUIRED_STAFF.N) break;
+        if (assignedNurses.has(nurse.id)) continue;
+        if (!canWork(nurse.id)) continue;
+        if (nightBlockStatus[nurse.id] !== 0) continue; // 이미 나이트 중이면 스킵
+
+        // 나이트 시작 전 체크: 향후 2일 동안 주휴일이 없는지 확인
+        // (나이트는 최소 2일 연속이므로)
+        let hasWeekOffInNext2Days = false;
+        for (let i = 0; i < 2 && dateIndex + i < dates.length; i++) {
+          const futureDate = dates[dateIndex + i];
+          const futureDateObj = new Date(futureDate);
+          const futureDayOfWeek = getDayOfWeek(futureDateObj);
+          if (nurse.weekOffDay === futureDayOfWeek) {
+            hasWeekOffInNext2Days = true;
+            break;
+          }
+        }
+
+        if (hasWeekOffInNext2Days) continue; // 주휴일 충돌 방지
+
+        const last = lastShift[nurse.id];
+        // N은 휴일 후, E, N 다음 가능
+        if (!last || last === 'OFF' || last === 'WEEK_OFF' ||
+            last === 'ANNUAL' || last === 'MENSTRUAL' ||
+            last === 'E' || last === 'N') {
+          schedule.push({
+            nurseId: nurse.id,
+            date,
+            shiftType: 'N',
+            isFixed: false,
+          });
+          assignedNurses.add(nurse.id);
+          todayShift[nurse.id] = 'N';
+          workCount[nurse.id]++;
+          nightCount++;
+          nightBlockStatus[nurse.id] = 1; // 나이트 1일차 시작
+        }
       }
     }
 
@@ -264,7 +355,7 @@ export function generateSimpleSchedule(
       weeklyOffCount[nurse.id]++;
     }
 
-    // 6. 오늘 배정이 완료되면 lastShift와 연속 근무일 업데이트
+    // 6. 오늘 배정이 완료되면 lastShift, 연속 근무일, 나이트 블록 상태 업데이트
     for (const nurseId in todayShift) {
       lastShift[nurseId] = todayShift[nurseId];
 
@@ -279,6 +370,13 @@ export function generateSimpleSchedule(
         // 근무일이면 연속 근무일 증가
         consecutiveWorkDays[nurseId]++;
       }
+
+      // 나이트 블록 상태 업데이트
+      if (shiftType !== 'N') {
+        // 나이트가 아닌 근무나 휴일이면 나이트 블록 종료
+        nightBlockStatus[nurseId] = 0;
+      }
+      // 나이트 3일차이면 다음 날 자동으로 0이 됨 (위에서 처리)
     }
   });
 

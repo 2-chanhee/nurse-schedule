@@ -15,9 +15,9 @@ const DEFAULT_END_DATE = '2024-01-28';  // 기본 종료일 (4주)
 
 // 테스트용 간호사 데이터 (단위 테스트용 - 최소 3명)
 const testNurses: Nurse[] = [
-  { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN' },
-  { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON' },
-  { id: 'nurse-3', name: '간호사3', weekOffDay: 'TUE' },
+  { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
+  { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
+  { id: 'nurse-3', name: '간호사3', weekOffDay: 'TUE', annualLeaveDates: [] },
 ];
 
 describe('validator.ts - validateDailyStaffRequirement', () => {
@@ -256,6 +256,16 @@ describe('validator.ts - validateSchedule', () => {
       { nurseId: 'n7', date: '2024-01-01', shiftType: 'E', isFixed: false },
       { nurseId: 'n8', date: '2024-01-01', shiftType: 'N', isFixed: false },
       { nurseId: 'n9', date: '2024-01-01', shiftType: 'N', isFixed: false },
+      // 2024-01-02 - N 2일차 (나이트는 최소 2일 연속)
+      { nurseId: 'n8', date: '2024-01-02', shiftType: 'N', isFixed: false },
+      { nurseId: 'n9', date: '2024-01-02', shiftType: 'N', isFixed: false },
+      { nurseId: 'n1', date: '2024-01-02', shiftType: 'D', isFixed: false },
+      { nurseId: 'n2', date: '2024-01-02', shiftType: 'D', isFixed: false },
+      { nurseId: 'n3', date: '2024-01-02', shiftType: 'D', isFixed: false },
+      { nurseId: 'n4', date: '2024-01-02', shiftType: 'M', isFixed: false },
+      { nurseId: 'n5', date: '2024-01-02', shiftType: 'E', isFixed: false },
+      { nurseId: 'n6', date: '2024-01-02', shiftType: 'E', isFixed: false },
+      { nurseId: 'n7', date: '2024-01-02', shiftType: 'E', isFixed: false },
     ];
 
     const nurses = [
@@ -309,6 +319,7 @@ describe('validator.ts - validateSchedule', () => {
 
   it('필수 인원 초과 시 warning', () => {
     const schedule: ScheduleCell[] = [
+      // 2024-01-01
       // D: 4명 (초과)
       { nurseId: 'n1', date: '2024-01-01', shiftType: 'D', isFixed: false },
       { nurseId: 'n2', date: '2024-01-01', shiftType: 'D', isFixed: false },
@@ -323,6 +334,16 @@ describe('validator.ts - validateSchedule', () => {
       // N: 2명 (정상)
       { nurseId: 'n9', date: '2024-01-01', shiftType: 'N', isFixed: false },
       { nurseId: 'n10', date: '2024-01-01', shiftType: 'N', isFixed: false },
+      // 2024-01-02 - N 2일차 (나이트는 최소 2일 연속)
+      { nurseId: 'n9', date: '2024-01-02', shiftType: 'N', isFixed: false },
+      { nurseId: 'n10', date: '2024-01-02', shiftType: 'N', isFixed: false },
+      { nurseId: 'n1', date: '2024-01-02', shiftType: 'D', isFixed: false },
+      { nurseId: 'n2', date: '2024-01-02', shiftType: 'D', isFixed: false },
+      { nurseId: 'n3', date: '2024-01-02', shiftType: 'D', isFixed: false },
+      { nurseId: 'n5', date: '2024-01-02', shiftType: 'M', isFixed: false },
+      { nurseId: 'n6', date: '2024-01-02', shiftType: 'E', isFixed: false },
+      { nurseId: 'n7', date: '2024-01-02', shiftType: 'E', isFixed: false },
+      { nurseId: 'n8', date: '2024-01-02', shiftType: 'E', isFixed: false },
     ];
 
     const nurses = Array.from({ length: 10 }, (_, i) => ({

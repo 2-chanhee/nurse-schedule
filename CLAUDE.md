@@ -42,7 +42,7 @@ Before completing any task or feature, **ALWAYS** run the full test suite:
 npm run test:verbose
 ```
 
-- **All 40 tests must pass** before considering the task complete
+- **All 43 tests must pass** before considering the task complete
 - If any test fails:
   1. Analyze whether the **code** is wrong or the **test** is wrong
   2. Fix the issue
@@ -394,15 +394,17 @@ src/
 - ✅ 연속 근무일 제한 (최대 5일)
 - ✅ 주휴일 자동 배정 및 고정
 - ✅ 실시간 제약 조건 검증
-- ✅ 셀 레이블 표시 개선 (OFF, WO, A, 생휴)
+- ✅ 셀 레이블 표시 개선 (OFF, 주휴OFF, 연차OFF, 생휴)
 - ✅ 주 구분선 (일요일 왼쪽 굵은 세로선)
 - ✅ 재생성 버튼 (여러 번 클릭 가능)
 - ✅ 휴일 후 근무 순서 초기화
 - ✅ UI 색상 개선 (색약 고려)
 - ✅ 필수 인원 미충족/초과 시 강조 표시
+- ✅ 나이트 근무 2-3일 연속 규칙 (마지막 날 연결 고려)
+- ✅ 개인 연차 신청 기능 (고정 셀, 날짜 선택)
 
 ### Remaining Tasks
-- 🚧 나이트 근무 규칙 (2-3일 연속, 2일 휴식, 2주 연속 금지)
+- 🚧 나이트 근무 추가 규칙 (2일 휴식, 2주 연속 금지)
 - 🚧 우클릭 고정/해제 기능
 
 ### Weekly Rest Rule (주간 휴식 규칙)
@@ -536,6 +538,66 @@ src/
   - 요구사항을 정확히 이해하는 것이 가장 중요
   - 그리디 알고리즘에서는 할당 순서가 결과에 큰 영향을 미침
   - "D 다음"에만 가능한 M은 D 직후 배정하는 것이 최적
+
+#### 13. 셀 레이블 연차 구분 (src/types.ts:66-67)
+- **문제**: 연차와 일반 OFF가 구분되지 않아 헷갈림
+- **요구사항**: 연차는 "연차OFF"로, 주휴는 "주휴OFF"로 표시
+- **해결**:
+  - WEEK_OFF: "WO" → "주휴OFF"
+  - ANNUAL: "A" → "연차OFF"
+- **효과**: 스케줄표에서 휴무 유형을 명확히 구분 가능
+- **교훈**: 사용자 피드백을 즉시 반영하여 UX 개선
+
+#### 14. 개인 연차 신청 기능 (src/types.ts:12, src/components/NurseManagement.tsx:68-195, src/utils/scheduler.ts:129-141)
+- **요구사항**: 간호사 관리 화면에서 개인 연차를 미리 신청하고 스케줄에 고정
+- **구현 내용**:
+  1. **타입 정의**: Nurse 타입에 `annualLeaveDates: string[]` 필드 추가
+  2. **UI 구현** (NurseManagement.tsx):
+     - 날짜 선택: `<input type="date">` 사용
+     - 태그 표시: 파란색 배경에 날짜와 삭제 버튼
+     - 추가/삭제 핸들러 구현
+  3. **스케줄 생성** (scheduler.ts:129-141):
+     - 주휴일 다음으로 연차 배정 (최우선)
+     - isFixed: true로 고정
+     - shiftType: 'ANNUAL'
+  4. **CSS 스타일** (NurseManagement.css:254-324):
+     - 파란색 태그 (#dbeafe 배경, #1e40af 텍스트)
+     - 삭제 버튼 hover 시 빨간색
+- **테스트**: 3개 추가 (src/utils/scheduler.test.ts:207-270)
+  - 연차 신청한 날짜 ANNUAL 고정 배정
+  - 연차 신청 없으면 ANNUAL 타입 없음
+  - 여러 간호사 같은 날 연차 신청 가능
+- **주의사항**: 주휴일과 연차가 겹치는 경우 주휴일 우선 (실제로는 겹칠 일 없음)
+- **교훈**: 간단한 기능도 타입 정의, UI, 로직, 스타일, 테스트 모두 고려해야 완전한 구현
+
+#### 15. 마지막 날 N 부족 문제 해결 (src/utils/scheduler.ts:207-235, src/utils/validator.ts:229-231, 286-288)
+- **문제**: 스케줄 마지막 날에 N(나이트) 부족 오류 빈번 발생
+- **원인**:
+  - 나이트 2일차가 30% 확률로 종료되면 마지막 날 N 부족
+  - 새 나이트 블록 시작이 "최소 2일 남음" 조건으로 마지막 날 불가
+- **사용자 피드백**: "마지막날은 어차피 다음 근무로 이어지니까, 지금 4주만 보고는 판단할 수 없어"
+- **핵심 통찰**: 4주 스케줄은 순환하므로 마지막 날은 다음 4주로 연결됨 → 마지막 날의 나이트 블록은 다음 스케줄에서 계속될 수 있음
+- **해결**:
+  1. **스케줄러 수정** (scheduler.ts):
+     - 나이트 2일차: 마지막 날이거나 N 부족 시 무조건 3일차 계속 (line 207-210)
+     - 긴급 조치: 마지막 날에 N 부족하면 1일 나이트도 허용 (line 233-235)
+  2. **검증 로직 수정** (validator.ts):
+     - 전체 스케줄의 마지막 날짜 계산 (line 229-231)
+     - 나이트 블록이 마지막 날로 끝나는 경우 검증 제외 (line 286-288)
+     - 이유: 다음 4주 스케줄로 이어질 수 있으므로 현재 스케줄만으로는 판단 불가
+- **효과**: 마지막 날 N 부족 오류 완전 해결, 500회 반복 테스트 통과
+- **교훈**:
+  - 순환 스케줄의 경계 조건은 다음 주기와의 연결성을 고려해야 함
+  - 사용자의 도메인 지식이 핵심 통찰을 제공할 수 있음
+  - 검증 로직도 비즈니스 맥락을 이해해야 정확함
+
+#### 16. 테스트 반복 횟수 500회로 증가 (src/utils/scheduler.test.ts:238, 242)
+- **요구사항**: 랜덤 요소 검증을 더 철저히 하기 위해 100회 → 500회
+- **변경 사항**:
+  - 테스트명: "100회" → "500회"
+  - 반복문: `for (let i = 0; i < 100; i++)` → `for (let i = 0; i < 500; i++)`
+- **결과**: ✅ 500회 모두 통과 (모든 제약 조건 만족)
+- **교훈**: 랜덤 요소가 있는 알고리즘은 충분한 반복 테스트로 안정성 검증 필수
 
 ### When Starting a New Session
 1. Read `SPEC.md` to understand project requirements and current implementation status

@@ -214,7 +214,83 @@ export function validateWeeklyRest(
 }
 
 /**
- * 4. 연속 근무일 제한 검증
+ * 4. 나이트 근무 2-3일 연속 규칙 검증
+ * - 나이트는 2일 또는 3일 연속만 가능
+ * - 1일만 근무 불가
+ * - 4일 이상 연속 불가
+ */
+export function validateNightBlockLength(
+  nurseId: string,
+  nurseName: string,
+  schedule: ScheduleCell[]
+): Violation[] {
+  const violations: Violation[] = [];
+
+  // 전체 스케줄의 마지막 날짜 계산
+  const allDates = schedule.map((s) => s.date).sort();
+  const lastDate = allDates.length > 0 ? allDates[allDates.length - 1] : '';
+
+  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬
+  const nurseCells = schedule
+    .filter((s) => s.nurseId === nurseId)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  let consecutiveNightDays = 0;
+  let nightStartDate = '';
+
+  for (let i = 0; i < nurseCells.length; i++) {
+    const cell = nurseCells[i];
+    const shiftType = cell.shiftType;
+
+    if (shiftType === 'N') {
+      // 나이트 근무일
+      if (consecutiveNightDays === 0) {
+        nightStartDate = cell.date; // 나이트 블록 시작
+      }
+      consecutiveNightDays++;
+
+      // 4일 이상 연속 나이트 시 위반
+      if (consecutiveNightDays > 3) {
+        violations.push({
+          type: 'HARD',
+          nurseId,
+          nurseName,
+          date: cell.date,
+          message: `${nurseName} - ${cell.date}: 나이트 연속 근무일 초과 (${consecutiveNightDays}일 연속, 최대 3일)`,
+        });
+      }
+    } else {
+      // 나이트가 아닌 날
+      if (consecutiveNightDays > 0) {
+        // 나이트 블록이 끝남 -> 길이 체크
+        if (consecutiveNightDays === 1) {
+          // 1일만 나이트 근무 시 위반 (단, 마지막 날 예외)
+          const isLastDayNight = nightStartDate === lastDate;
+          if (!isLastDayNight) {
+            violations.push({
+              type: 'HARD',
+              nurseId,
+              nurseName,
+              date: nightStartDate,
+              message: `${nurseName} - ${nightStartDate}: 나이트 1일만 근무 (최소 2일 연속 필요)`,
+            });
+          }
+        }
+        // 2일 또는 3일은 정상
+        consecutiveNightDays = 0;
+        nightStartDate = '';
+      }
+    }
+  }
+
+  // 마지막이 나이트로 끝나는 경우는 검증하지 않음
+  // (다음 4주 스케줄로 이어질 수 있으므로 현재 스케줄만으로는 판단 불가)
+
+  return violations;
+}
+
+/**
+ * 5. 연속 근무일 제한 검증
  * 최대 5일 연속 근무까지만 가능, 6일 이상 불가
  */
 export function validateConsecutiveWorkDays(
@@ -350,6 +426,12 @@ export function validateSchedule(
   nurses.forEach((nurse) => {
     const consecutiveViolations = validateConsecutiveWorkDays(nurse.id, nurse.name, schedule);
     violations.push(...consecutiveViolations);
+  });
+
+  // 나이트 2-3일 연속 규칙 검증
+  nurses.forEach((nurse) => {
+    const nightBlockViolations = validateNightBlockLength(nurse.id, nurse.name, schedule);
+    violations.push(...nightBlockViolations);
   });
 
   return { violations, dailyStaffStatus };

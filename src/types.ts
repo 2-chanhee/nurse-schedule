@@ -9,6 +9,7 @@ export interface Nurse {
   id: string;
   name: string;
   weekOffDay: DayOfWeek; // 주휴일 (일~토 중 1일)
+  annualLeaveDates: string[]; // 연차 날짜 배열 (YYYY-MM-DD 형식)
 }
 
 // 스케줄 셀 인터페이스
@@ -62,8 +63,8 @@ export const SHIFT_TYPE_SHORT_LABELS: Record<ShiftType, string> = {
   E: 'E',
   N: 'N',
   OFF: 'OFF',
-  WEEK_OFF: 'WO',
-  ANNUAL: 'A',
+  WEEK_OFF: '주휴OFF',
+  ANNUAL: '연차OFF',
   MENSTRUAL: '생휴',
 };
 
