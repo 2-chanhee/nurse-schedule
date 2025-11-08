@@ -11,25 +11,30 @@ interface ScheduleViewProps {
 }
 
 export default function ScheduleView({ nurses }: ScheduleViewProps) {
-  // 날짜 범위 설정: 가장 빨리 오는 일요일부터 4주(28일)
+  // 날짜 범위 설정: 현재 날 이후의 가장 빠른 일요일부터 4주(28일)
   const [startDate, setStartDate] = useState<string>(() => {
     const today = new Date();
     const dayOfWeek = today.getDay(); // 0 = 일요일
 
-    // 가장 빨리 오는 일요일 계산
-    const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+    // 현재 날 이후의 가장 빠른 일요일 계산
+    const daysUntilSunday = dayOfWeek === 0 ? 7 : 7 - dayOfWeek;
     const nextSunday = new Date(today);
     nextSunday.setDate(today.getDate() + daysUntilSunday);
 
-    return nextSunday.toISOString().split('T')[0];
+    // 로컬 날짜를 YYYY-MM-DD 형식으로 변환 (타임존 문제 방지)
+    const year = nextSunday.getFullYear();
+    const month = String(nextSunday.getMonth() + 1).padStart(2, '0');
+    const day = String(nextSunday.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
   });
 
   const [endDate, setEndDate] = useState<string>(() => {
     const today = new Date();
     const dayOfWeek = today.getDay(); // 0 = 일요일
 
-    // 가장 빨리 오는 일요일 계산
-    const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+    // 현재 날 이후의 가장 빠른 일요일 계산
+    const daysUntilSunday = dayOfWeek === 0 ? 7 : 7 - dayOfWeek;
     const nextSunday = new Date(today);
     nextSunday.setDate(today.getDate() + daysUntilSunday);
 
@@ -37,7 +42,12 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
     const endSaturday = new Date(nextSunday);
     endSaturday.setDate(nextSunday.getDate() + 27);
 
-    return endSaturday.toISOString().split('T')[0];
+    // 로컬 날짜를 YYYY-MM-DD 형식으로 변환 (타임존 문제 방지)
+    const year = endSaturday.getFullYear();
+    const month = String(endSaturday.getMonth() + 1).padStart(2, '0');
+    const day = String(endSaturday.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
   });
 
   // 스케줄 데이터
