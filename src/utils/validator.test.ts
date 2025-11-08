@@ -5,6 +5,9 @@ import {
   validateConsecutiveWorkDays,
   validateSchedule,
   validateWeeklyRest,
+  validateNightRestDays,
+  validateNightTwoWeekLimit,
+  validateAnnualWeekOffConflict,
 } from './validator';
 import type { ScheduleCell, Nurse } from '../types';
 
@@ -593,5 +596,334 @@ describe('validator.ts - validateWeeklyRest', () => {
     // 2주차만 위반 (2024-01-14가 일요일)
     expect(violations.length).toBeGreaterThan(0);
     expect(violations[0].message).toContain('OFF가 0일');
+  });
+});
+
+describe('validator.ts - validateNightRestDays', () => {
+  it('정상 케이스: 나이트 2일 후 2일 휴식', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-01-01', shiftType: 'N', isFixed: false }, // 나이트 1일차
+      { nurseId: 'nurse-1', date: '2024-01-02', shiftType: 'N', isFixed: false }, // 나이트 2일차
+      { nurseId: 'nurse-1', date: '2024-01-03', shiftType: 'OFF', isFixed: false }, // 휴식 1일차
+      { nurseId: 'nurse-1', date: '2024-01-04', shiftType: 'OFF', isFixed: false }, // 휴식 2일차
+      { nurseId: 'nurse-1', date: '2024-01-05', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateNightRestDays('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(0);
+  });
+
+  it('정상 케이스: 나이트 3일 후 2일 휴식', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-01-01', shiftType: 'N', isFixed: false }, // 나이트 1일차
+      { nurseId: 'nurse-1', date: '2024-01-02', shiftType: 'N', isFixed: false }, // 나이트 2일차
+      { nurseId: 'nurse-1', date: '2024-01-03', shiftType: 'N', isFixed: false }, // 나이트 3일차
+      { nurseId: 'nurse-1', date: '2024-01-04', shiftType: 'WEEK_OFF', isFixed: true }, // 휴식 1일차 (주휴)
+      { nurseId: 'nurse-1', date: '2024-01-05', shiftType: 'OFF', isFixed: false }, // 휴식 2일차
+      { nurseId: 'nurse-1', date: '2024-01-06', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateNightRestDays('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(0);
+  });
+
+  it('위반 케이스: 나이트 2일 후 1일만 휴식', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-01-01', shiftType: 'N', isFixed: false }, // 나이트 1일차
+      { nurseId: 'nurse-1', date: '2024-01-02', shiftType: 'N', isFixed: false }, // 나이트 2일차
+      { nurseId: 'nurse-1', date: '2024-01-03', shiftType: 'OFF', isFixed: false }, // 휴식 1일만
+      { nurseId: 'nurse-1', date: '2024-01-04', shiftType: 'D', isFixed: false }, // 바로 근무 -> 위반
+      { nurseId: 'nurse-1', date: '2024-01-05', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateNightRestDays('nurse-1', '간호사1', schedule);
+
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations[0].type).toBe('HARD');
+    expect(violations[0].message).toContain('나이트 종료 후 1일 휴식');
+  });
+
+  it('위반 케이스: 나이트 3일 후 1일만 휴식', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-01-01', shiftType: 'N', isFixed: false }, // 나이트 1일차
+      { nurseId: 'nurse-1', date: '2024-01-02', shiftType: 'N', isFixed: false }, // 나이트 2일차
+      { nurseId: 'nurse-1', date: '2024-01-03', shiftType: 'N', isFixed: false }, // 나이트 3일차
+      { nurseId: 'nurse-1', date: '2024-01-04', shiftType: 'OFF', isFixed: false }, // 휴식 1일만
+      { nurseId: 'nurse-1', date: '2024-01-05', shiftType: 'D', isFixed: false }, // 바로 근무 -> 위반
+    ];
+
+    const violations = validateNightRestDays('nurse-1', '간호사1', schedule);
+
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations[0].type).toBe('HARD');
+    expect(violations[0].message).toContain('나이트 종료 후 1일 휴식');
+  });
+
+  it('위반 케이스: 나이트 종료 후 바로 근무', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-01-01', shiftType: 'N', isFixed: false }, // 나이트 1일차
+      { nurseId: 'nurse-1', date: '2024-01-02', shiftType: 'N', isFixed: false }, // 나이트 2일차
+      { nurseId: 'nurse-1', date: '2024-01-03', shiftType: 'D', isFixed: false }, // 바로 근무 -> 위반
+    ];
+
+    const violations = validateNightRestDays('nurse-1', '간호사1', schedule);
+
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations[0].type).toBe('HARD');
+    expect(violations[0].message).toContain('나이트 종료 후 0일 휴식');
+  });
+
+  it('정상 케이스: 나이트 후 연차 2일', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-01-01', shiftType: 'N', isFixed: false }, // 나이트 1일차
+      { nurseId: 'nurse-1', date: '2024-01-02', shiftType: 'N', isFixed: false }, // 나이트 2일차
+      { nurseId: 'nurse-1', date: '2024-01-03', shiftType: 'ANNUAL', isFixed: false }, // 연차 1일차
+      { nurseId: 'nurse-1', date: '2024-01-04', shiftType: 'ANNUAL', isFixed: false }, // 연차 2일차
+      { nurseId: 'nurse-1', date: '2024-01-05', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateNightRestDays('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(0);
+  });
+
+  it('정상 케이스: 나이트 후 주휴+OFF', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-01-05', shiftType: 'N', isFixed: false }, // 나이트 1일차 (금)
+      { nurseId: 'nurse-1', date: '2024-01-06', shiftType: 'N', isFixed: false }, // 나이트 2일차 (토)
+      { nurseId: 'nurse-1', date: '2024-01-07', shiftType: 'WEEK_OFF', isFixed: true }, // 주휴 (일)
+      { nurseId: 'nurse-1', date: '2024-01-08', shiftType: 'OFF', isFixed: false }, // OFF (월)
+      { nurseId: 'nurse-1', date: '2024-01-09', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateNightRestDays('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(0);
+  });
+
+  it('정상 케이스: 나이트 후 생휴+OFF', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-01-01', shiftType: 'N', isFixed: false }, // 나이트 1일차
+      { nurseId: 'nurse-1', date: '2024-01-02', shiftType: 'N', isFixed: false }, // 나이트 2일차
+      { nurseId: 'nurse-1', date: '2024-01-03', shiftType: 'N', isFixed: false }, // 나이트 3일차
+      { nurseId: 'nurse-1', date: '2024-01-04', shiftType: 'MENSTRUAL', isFixed: false }, // 생휴
+      { nurseId: 'nurse-1', date: '2024-01-05', shiftType: 'OFF', isFixed: false }, // OFF
+      { nurseId: 'nurse-1', date: '2024-01-06', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateNightRestDays('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(0);
+  });
+});
+
+describe('validator.ts - validateNightTwoWeekLimit', () => {
+  it('정상 케이스: 1주만 나이트 근무', () => {
+    const schedule: ScheduleCell[] = [
+      // 1주차 (2024-01-07 일 ~ 2024-01-13 토): 나이트 있음
+      { nurseId: 'nurse-1', date: '2024-01-07', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-08', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-09', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-10', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-11', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-12', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-13', shiftType: 'D', isFixed: false },
+      // 2주차 (2024-01-14 일 ~ 2024-01-20 토): 나이트 없음
+      { nurseId: 'nurse-1', date: '2024-01-14', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-15', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-16', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-17', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-18', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-19', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-20', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateNightTwoWeekLimit('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(0);
+  });
+
+  it('위반 케이스: 2주 연속 나이트 근무 (SOFT)', () => {
+    const schedule: ScheduleCell[] = [
+      // 1주차 (2024-01-07 일 ~ 2024-01-13 토): 나이트 있음
+      { nurseId: 'nurse-1', date: '2024-01-07', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-08', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-09', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-10', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-11', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-12', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-13', shiftType: 'D', isFixed: false },
+      // 2주차 (2024-01-14 일 ~ 2024-01-20 토): 나이트 있음 -> 2주 연속!
+      { nurseId: 'nurse-1', date: '2024-01-14', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-15', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-16', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-17', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-18', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-19', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-20', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateNightTwoWeekLimit('nurse-1', '간호사1', schedule);
+
+    expect(violations.length).toBeGreaterThan(0);
+    expect(violations[0].type).toBe('SOFT'); // 소프트 제약
+    expect(violations[0].message).toContain('2주 연속 나이트 근무');
+  });
+
+  it('위반 케이스: 3주 연속 나이트 근무 (2개 SOFT 위반)', () => {
+    const schedule: ScheduleCell[] = [
+      // 1주차: 나이트 있음
+      { nurseId: 'nurse-1', date: '2024-01-07', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-08', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-09', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-10', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-11', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-12', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-13', shiftType: 'D', isFixed: false },
+      // 2주차: 나이트 있음 -> 1-2주차 연속!
+      { nurseId: 'nurse-1', date: '2024-01-14', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-15', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-16', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-17', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-18', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-19', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-20', shiftType: 'D', isFixed: false },
+      // 3주차: 나이트 있음 -> 2-3주차 연속!
+      { nurseId: 'nurse-1', date: '2024-01-21', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-22', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-23', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-24', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-25', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-26', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-27', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateNightTwoWeekLimit('nurse-1', '간호사1', schedule);
+
+    expect(violations.length).toBe(2); // 1-2주차, 2-3주차 총 2개 위반
+    expect(violations[0].type).toBe('SOFT');
+    expect(violations[1].type).toBe('SOFT');
+  });
+
+  it('정상 케이스: 1주 건너뛰고 나이트 근무', () => {
+    const schedule: ScheduleCell[] = [
+      // 1주차: 나이트 있음
+      { nurseId: 'nurse-1', date: '2024-01-07', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-08', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-09', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-10', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-11', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-12', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-13', shiftType: 'D', isFixed: false },
+      // 2주차: 나이트 없음
+      { nurseId: 'nurse-1', date: '2024-01-14', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-15', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-16', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-17', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-18', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-19', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-20', shiftType: 'D', isFixed: false },
+      // 3주차: 나이트 있음 (1주차와 연속 아님)
+      { nurseId: 'nurse-1', date: '2024-01-21', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-22', shiftType: 'N', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-23', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-24', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-25', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-26', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-27', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateNightTwoWeekLimit('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(0);
+  });
+
+  it('정상 케이스: 나이트 근무 없음', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-01-07', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-08', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-09', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-10', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateNightTwoWeekLimit('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(0);
+  });
+});
+
+describe('validator.ts - validateAnnualWeekOffConflict', () => {
+  it('정상 케이스: 주휴일과 연차가 다른 요일', () => {
+    const nurse: Nurse = {
+      id: 'nurse-1',
+      name: '간호사1',
+      weekOffDay: 'SUN', // 일요일 주휴
+      annualLeaveDates: ['2024-01-08', '2024-01-15'], // 월요일 연차
+    };
+
+    const violations = validateAnnualWeekOffConflict(nurse);
+
+    expect(violations).toHaveLength(0);
+  });
+
+  it('위반 케이스: 주휴일과 연차가 같은 요일 (일요일)', () => {
+    const nurse: Nurse = {
+      id: 'nurse-1',
+      name: '간호사1',
+      weekOffDay: 'SUN', // 일요일 주휴
+      annualLeaveDates: ['2024-01-07', '2024-01-14'], // 일요일 연차 - 겹침!
+    };
+
+    const violations = validateAnnualWeekOffConflict(nurse);
+
+    expect(violations).toHaveLength(2); // 2개 위반
+    expect(violations[0].type).toBe('HARD');
+    expect(violations[0].date).toBe('2024-01-07');
+    expect(violations[0].message).toContain('주휴일과 연차가 겹칩니다');
+    expect(violations[0].message).toContain('일요일');
+  });
+
+  it('위반 케이스: 주휴일과 연차가 같은 요일 (화요일)', () => {
+    const nurse: Nurse = {
+      id: 'nurse-2',
+      name: '간호사2',
+      weekOffDay: 'TUE', // 화요일 주휴
+      annualLeaveDates: ['2024-01-09', '2024-01-16'], // 화요일 연차 - 겹침!
+    };
+
+    const violations = validateAnnualWeekOffConflict(nurse);
+
+    expect(violations).toHaveLength(2);
+    expect(violations[0].type).toBe('HARD');
+    expect(violations[0].message).toContain('화요일');
+  });
+
+  it('정상 케이스: 연차 없음', () => {
+    const nurse: Nurse = {
+      id: 'nurse-3',
+      name: '간호사3',
+      weekOffDay: 'MON',
+      annualLeaveDates: [],
+    };
+
+    const violations = validateAnnualWeekOffConflict(nurse);
+
+    expect(violations).toHaveLength(0);
+  });
+
+  it('정상 케이스: 일부만 겹침 (1개 정상, 1개 위반)', () => {
+    const nurse: Nurse = {
+      id: 'nurse-4',
+      name: '간호사4',
+      weekOffDay: 'WED', // 수요일 주휴
+      annualLeaveDates: ['2024-01-10', '2024-01-11'], // 수요일, 목요일
+    };
+
+    const violations = validateAnnualWeekOffConflict(nurse);
+
+    expect(violations).toHaveLength(1); // 수요일만 위반
+    expect(violations[0].date).toBe('2024-01-10');
   });
 });

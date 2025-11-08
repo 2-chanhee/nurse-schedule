@@ -67,6 +67,12 @@ export function generateSimpleSchedule(
     nightBlockStatus[nurse.id] = 0;
   });
 
+  // 각 간호사의 나이트 후 남은 휴식일 수 (0: 휴식 필요 없음, 1: 1일 남음, 2: 2일 남음)
+  const nightRestDaysRemaining: Record<string, number> = {};
+  nurses.forEach((nurse) => {
+    nightRestDaysRemaining[nurse.id] = 0;
+  });
+
   // 각 날짜별로 스케줄 생성
   dates.forEach((date, dateIndex) => {
     const dayOfWeek = new Date(date).getDay(); // 0 = 일요일
@@ -100,12 +106,17 @@ export function generateSimpleSchedule(
 
     // 연속 근무일 체크: 이미 5일 연속 근무한 간호사는 제외
     // 토요일(6)에는 주간 OFF가 0인 간호사는 근무 불가
+    // 나이트 후 휴식일이 남아있는 간호사는 근무 불가
     const canWork = (nurseId: string): boolean => {
       if (consecutiveWorkDays[nurseId] >= MAX_CONSECUTIVE_WORK_DAYS) {
         return false;
       }
       // 토요일이면서 주간 OFF가 아직 0인 경우 근무 불가 (OFF 강제)
       if (dayOfWeek === 6 && weeklyOffCount[nurseId] === 0) {
+        return false;
+      }
+      // 나이트 후 휴식일이 남아있으면 근무 불가
+      if (nightRestDaysRemaining[nurseId] > 0) {
         return false;
       }
       return true;
@@ -235,10 +246,10 @@ export function generateSimpleSchedule(
           nightCount++;
           nightBlockStatus[nurse.id] = 3; // 3일차로 전환
         } else {
-          nightBlockStatus[nurse.id] = 0; // 나이트 종료
+          nightBlockStatus[nurse.id] = 0; // 나이트 종료 (오늘 배정 업데이트에서 nightRestDaysRemaining 설정)
         }
       }
-      // status === 3이면 반드시 종료 (아무것도 안 함, 아래서 0으로 리셋됨)
+      // status === 3이면 반드시 종료 (오늘 배정 업데이트에서 nightRestDaysRemaining 설정)
     }
 
     // 3-2. 부족한 만큼 새로운 나이트 시작 (1일차)
@@ -374,9 +385,18 @@ export function generateSimpleSchedule(
       // 나이트 블록 상태 업데이트
       if (shiftType !== 'N') {
         // 나이트가 아닌 근무나 휴일이면 나이트 블록 종료
+        // 나이트 2일차 또는 3일차 종료 시 2일 휴식 필요
+        if (nightBlockStatus[nurseId] === 2 || nightBlockStatus[nurseId] === 3) {
+          nightRestDaysRemaining[nurseId] = 2;
+        }
         nightBlockStatus[nurseId] = 0;
       }
       // 나이트 3일차이면 다음 날 자동으로 0이 됨 (위에서 처리)
+
+      // 나이트 후 휴식일 카운트 감소
+      if (restTypes.includes(shiftType) && nightRestDaysRemaining[nurseId] > 0) {
+        nightRestDaysRemaining[nurseId]--;
+      }
     }
   });
 

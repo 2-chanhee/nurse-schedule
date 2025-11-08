@@ -13,15 +13,80 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
   const [name, setName] = useState('');
   const [weekOffDay, setWeekOffDay] = useState<DayOfWeek>('SUN');
 
+  // 스케줄 시작일 계산 (ScheduleView와 동일한 로직)
+  const getScheduleStartDate = (): Date => {
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0 = 일요일
+    const daysUntilSunday = dayOfWeek === 0 ? 7 : 7 - dayOfWeek;
+    const nextSunday = new Date(today);
+    nextSunday.setDate(today.getDate() + daysUntilSunday);
+    return nextSunday;
+  };
+
+  // 특정 요일의 날짜들을 스케줄 범위 내에서 찾기 (주휴일 제외)
+  const getDatesForWeekDay = (startDate: Date, weekOffDay: DayOfWeek): string[] => {
+    const dayMap: Record<DayOfWeek, number> = {
+      SUN: 0,
+      MON: 1,
+      TUE: 2,
+      WED: 3,
+      THU: 4,
+      FRI: 5,
+      SAT: 6,
+    };
+
+    // 주휴일이 아닌 다음 요일을 연차 요일로 선택
+    const weekOffDayNum = dayMap[weekOffDay];
+    const annualDayNum = (weekOffDayNum + 1) % 7; // 주휴일 다음날
+
+    const dates: string[] = [];
+
+    // 4주 범위 내에서 해당 요일 찾기
+    for (let i = 0; i < 28; i++) {
+      const date = new Date(startDate);
+      date.setDate(startDate.getDate() + i);
+      if (date.getDay() === annualDayNum) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        dates.push(`${year}-${month}-${day}`);
+      }
+    }
+    return dates;
+  };
+
   // 기본 15명 초기화 (주휴일 라운드로빈)
   const initializeDefaultNurses = () => {
+    const scheduleStartDate = getScheduleStartDate();
+
+    // 랜덤하게 3명 선택
+    const randomIndices: number[] = [];
+    while (randomIndices.length < 3) {
+      const randomIndex = Math.floor(Math.random() * DEFAULT_NURSE_COUNT);
+      if (!randomIndices.includes(randomIndex)) {
+        randomIndices.push(randomIndex);
+      }
+    }
+
     const defaultNurses: Nurse[] = [];
     for (let i = 0; i < DEFAULT_NURSE_COUNT; i++) {
+      const weekOffDay = DAYS_OF_WEEK[i % DAYS_OF_WEEK.length];
+
+      // 랜덤 3명에게 주휴일과 같은 요일에 연차 미리 배정
+      let annualLeaveDates: string[] = [];
+      if (randomIndices.includes(i)) {
+        const availableDates = getDatesForWeekDay(scheduleStartDate, weekOffDay);
+        // 가능한 날짜 중 2개 선택 (첫 번째와 세 번째 주)
+        if (availableDates.length >= 2) {
+          annualLeaveDates = [availableDates[0], availableDates[2]];
+        }
+      }
+
       defaultNurses.push({
         id: `nurse-${i + 1}`,
         name: `간호사 ${i + 1}`,
-        weekOffDay: DAYS_OF_WEEK[i % DAYS_OF_WEEK.length], // 라운드로빈
-        annualLeaveDates: [], // 연차 날짜 초기화
+        weekOffDay,
+        annualLeaveDates,
       });
     }
     onNursesChange(defaultNurses);
@@ -67,10 +132,34 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
 
   const handleAddAnnualLeave = (id: string, date: string) => {
     if (!date) return;
-    const updatedNurses = nurses.map((nurse) =>
-      nurse.id === id
-        ? { ...nurse, annualLeaveDates: [...nurse.annualLeaveDates, date].sort() }
-        : nurse
+
+    // 해당 간호사 찾기
+    const nurse = nurses.find((n) => n.id === id);
+    if (!nurse) return;
+
+    // 선택한 날짜의 요일 계산
+    const selectedDate = new Date(date);
+    const dayMap: Record<number, DayOfWeek> = {
+      0: 'SUN',
+      1: 'MON',
+      2: 'TUE',
+      3: 'WED',
+      4: 'THU',
+      5: 'FRI',
+      6: 'SAT',
+    };
+    const selectedDayOfWeek = dayMap[selectedDate.getDay()];
+
+    // 주휴일과 겹치는지 확인
+    if (selectedDayOfWeek === nurse.weekOffDay) {
+      alert(`❌ 주휴일(${DAY_OF_WEEK_LABELS[nurse.weekOffDay]}요일)과 연차는 겹칠 수 없습니다.\n다른 요일을 선택해주세요.`);
+      return;
+    }
+
+    const updatedNurses = nurses.map((n) =>
+      n.id === id
+        ? { ...n, annualLeaveDates: [...n.annualLeaveDates, date].sort() }
+        : n
     );
     onNursesChange(updatedNurses);
   };
@@ -169,9 +258,11 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
                       <div className="annual-leave-input">
                         <input
                           type="date"
+                          key={`${nurse.id}-${nurse.annualLeaveDates.length}`}
                           onChange={(e) => {
-                            handleAddAnnualLeave(nurse.id, e.target.value);
-                            e.target.value = ''; // 입력 후 초기화
+                            if (e.target.value) {
+                              handleAddAnnualLeave(nurse.id, e.target.value);
+                            }
                           }}
                           className="date-input"
                         />

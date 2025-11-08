@@ -34,21 +34,41 @@ npm run test:run          # Run tests once
 npm run test:verbose      # Run tests with detailed output (recommended)
 ```
 
-**🔴 IMPORTANT: Final Verification**
+**🔴 CRITICAL: Test-Driven Development (TDD) - MANDATORY**
 
-Before completing any task or feature, **ALWAYS** run the full test suite:
+**모든 기능 구현 시 반드시 다음 순서를 따라야 합니다:**
 
-```bash
-npm run test:verbose
-```
+1. **개별 테스트 코드 작성** (사용자 요청 없이 Claude가 자동으로 수행)
+   - 새 기능에 대한 단위 테스트 작성
+   - 정상 케이스 + 위반 케이스 모두 작성
+   - 파일 위치: `src/utils/*.test.ts`
 
-- **All 43 tests must pass** before considering the task complete
-- If any test fails:
-  1. Analyze whether the **code** is wrong or the **test** is wrong
-  2. Fix the issue
-  3. Run `npm run test:verbose` again
-  4. Repeat until all tests pass
-- Never skip this step, even for minor changes
+2. **개별 테스트 통과 확인**
+   ```bash
+   npm run test:verbose
+   ```
+   - 새로 추가한 테스트가 통과하는지 확인
+   - 실패 시 코드 수정 후 재실행
+
+3. **통합 테스트 통과 확인** (FINAL VERIFICATION)
+   ```bash
+   npm run test:verbose
+   ```
+   - **All 56 tests must pass** before considering the task complete
+   - AND 조건 통합 테스트 통과 필수
+   - violations.length === 0 확인
+   - If any test fails:
+     1. Analyze whether the **code** is wrong or the **test** is wrong
+     2. Fix the issue
+     3. Run `npm run test:verbose` again
+     4. Repeat until all tests pass
+
+4. **문서 업데이트**
+   - SPEC.md에 구현 내용 반영
+   - CLAUDE.md에 중요한 기술 내용 추가
+
+**⚠️ 이 과정은 자동으로 수행됩니다. 사용자가 요청하지 않아도 Claude가 스스로 테스트를 작성하고 검증합니다.**
+**⚠️ 테스트 통과 없이는 절대 작업 완료로 간주하지 않습니다.**
 
 ## TypeScript Configuration
 
@@ -598,6 +618,25 @@ src/
   - 반복문: `for (let i = 0; i < 100; i++)` → `for (let i = 0; i < 500; i++)`
 - **결과**: ✅ 500회 모두 통과 (모든 제약 조건 만족)
 - **교훈**: 랜덤 요소가 있는 알고리즘은 충분한 반복 테스트로 안정성 검증 필수
+
+#### 18. 연차 신청 시 주휴일 겹침 방지 (src/components/NurseManagement.tsx:129-161)
+- **요구사항**: 주휴일과 연차가 같은 날 배정되지 않도록 검증
+- **문제**: 기본 15명 세팅 시 주휴일과 같은 요일에 연차를 배정해서 혼란 발생
+- **해결**:
+  - `handleAddAnnualLeave`: 연차 신청 시 주휴일 요일과 비교 검증
+  - 겹칠 경우 alert 메시지 표시하고 연차 추가 차단
+  - `getDatesForWeekDay`: 주휴일 **다음날**을 연차 요일로 자동 선택
+- **구현 위치**:
+  - 검증 로직: NurseManagement.tsx:129-161
+  - 기본 세팅: NurseManagement.tsx:26-89
+- **효과**:
+  - 사용자가 실수로 주휴일에 연차 신청 불가
+  - 기본 15명 세팅 시 랜덤 3명에게 주휴일과 겹치지 않는 연차 자동 배정
+  - 스케줄에서 주휴일(WO)과 연차(A)가 명확히 구분됨
+- **하드 제약 조건**: SPEC.md "6. 연차 신청 규칙"에 추가
+- **교훈**:
+  - UI 검증은 즉시 피드백을 주어야 사용자 경험 향상
+  - 기본 세팅 시 제약 조건을 자동으로 만족하도록 설계
 
 ### When Starting a New Session
 1. Read `SPEC.md` to understand project requirements and current implementation status

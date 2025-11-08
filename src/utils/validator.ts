@@ -290,7 +290,143 @@ export function validateNightBlockLength(
 }
 
 /**
- * 5. 연속 근무일 제한 검증
+ * 5. 나이트 후 2일 휴식 규칙 검증
+ * 나이트 근무 종료 후 최소 2일 연속 휴식 필요
+ */
+export function validateNightRestDays(
+  nurseId: string,
+  nurseName: string,
+  schedule: ScheduleCell[]
+): Violation[] {
+  const violations: Violation[] = [];
+
+  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬
+  const nurseCells = schedule
+    .filter((s) => s.nurseId === nurseId)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // 휴일 타입들
+  const restTypes: ShiftType[] = ['OFF', 'WEEK_OFF', 'ANNUAL', 'MENSTRUAL'];
+
+  let consecutiveNightDays = 0;
+  let nightEndDate = '';
+
+  for (let i = 0; i < nurseCells.length; i++) {
+    const cell = nurseCells[i];
+    const shiftType = cell.shiftType;
+
+    if (shiftType === 'N') {
+      // 나이트 근무일
+      consecutiveNightDays++;
+    } else {
+      // 나이트가 아닌 날
+      if (consecutiveNightDays > 0) {
+        // 나이트 블록이 끝남 -> 이전 셀이 나이트 종료일
+        nightEndDate = nurseCells[i - 1].date;
+
+        // 나이트 종료 후 2일 연속 휴식 확인
+        // 향후 2일 확인 (스케줄 끝까지만)
+        let restDaysAfterNight = 0;
+        for (let j = i; j < nurseCells.length && j < i + 2; j++) {
+          if (restTypes.includes(nurseCells[j].shiftType)) {
+            restDaysAfterNight++;
+          } else {
+            // 근무일이 나오면 중단
+            break;
+          }
+        }
+
+        // 2일 연속 휴식이 아닌 경우 위반
+        if (restDaysAfterNight < 2) {
+          violations.push({
+            type: 'HARD',
+            nurseId,
+            nurseName,
+            date: nightEndDate,
+            message: `${nurseName} - ${nightEndDate}: 나이트 종료 후 ${restDaysAfterNight}일 휴식 (최소 2일 연속 휴식 필요)`,
+          });
+        }
+
+        consecutiveNightDays = 0;
+        nightEndDate = '';
+      }
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * 6. 나이트 2주 연속 제한 검증 (소프트 제약)
+ * 연속된 2주에 모두 나이트 근무가 있으면 권장하지 않음
+ * (인력 부족 시 불가피하므로 SOFT 위반)
+ */
+export function validateNightTwoWeekLimit(
+  nurseId: string,
+  nurseName: string,
+  schedule: ScheduleCell[]
+): Violation[] {
+  const violations: Violation[] = [];
+
+  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬
+  const nurseCells = schedule
+    .filter((s) => s.nurseId === nurseId)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (nurseCells.length === 0) {
+    return violations;
+  }
+
+  // 날짜를 주 단위로 그룹화 (일요일 시작)
+  const weekGroups: Map<string, ScheduleCell[]> = new Map();
+
+  nurseCells.forEach((cell) => {
+    const date = new Date(cell.date);
+    // 해당 주의 일요일 날짜를 키로 사용
+    const dayOfWeek = date.getDay(); // 0 = 일요일
+    const sunday = new Date(date);
+    sunday.setDate(date.getDate() - dayOfWeek);
+    const weekKey = sunday.toISOString().split('T')[0];
+
+    if (!weekGroups.has(weekKey)) {
+      weekGroups.set(weekKey, []);
+    }
+    weekGroups.get(weekKey)!.push(cell);
+  });
+
+  // 주 단위로 나이트 근무 여부 확인
+  const weeksWithNight: string[] = [];
+  weekGroups.forEach((weekCells, weekStartDate) => {
+    const hasNight = weekCells.some((cell) => cell.shiftType === 'N');
+    if (hasNight) {
+      weeksWithNight.push(weekStartDate);
+    }
+  });
+
+  // 연속된 2주에 나이트가 있는지 확인
+  weeksWithNight.sort(); // 날짜순 정렬
+  for (let i = 0; i < weeksWithNight.length - 1; i++) {
+    const currentWeek = new Date(weeksWithNight[i]);
+    const nextWeek = new Date(weeksWithNight[i + 1]);
+
+    // 다음 주가 정확히 7일 후인지 확인 (연속된 주)
+    const daysDiff = (nextWeek.getTime() - currentWeek.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysDiff === 7) {
+      violations.push({
+        type: 'SOFT',
+        nurseId,
+        nurseName,
+        date: weeksWithNight[i + 1],
+        message: `${nurseName} - ${weeksWithNight[i + 1]} 주: 2주 연속 나이트 근무 (권장하지 않음)`,
+      });
+    }
+  }
+
+  return violations;
+}
+
+/**
+ * 7. 연속 근무일 제한 검증
  * 최대 5일 연속 근무까지만 가능, 6일 이상 불가
  */
 export function validateConsecutiveWorkDays(
@@ -338,6 +474,48 @@ export function validateConsecutiveWorkDays(
       }
     }
   }
+
+  return violations;
+}
+
+/**
+ * 주휴일과 연차 겹침 검증
+ * 간호사의 연차 신청 날짜와 주휴일이 같은 요일인지 확인
+ */
+export function validateAnnualWeekOffConflict(nurse: Nurse): Violation[] {
+  const violations: Violation[] = [];
+
+  if (!nurse.annualLeaveDates || nurse.annualLeaveDates.length === 0) {
+    return violations;
+  }
+
+  // 주휴일 요일을 숫자로 변환
+  const dayMap: Record<DayOfWeek, number> = {
+    SUN: 0,
+    MON: 1,
+    TUE: 2,
+    WED: 3,
+    THU: 4,
+    FRI: 5,
+    SAT: 6,
+  };
+  const weekOffDayNum = dayMap[nurse.weekOffDay];
+
+  // 각 연차 날짜의 요일 확인
+  nurse.annualLeaveDates.forEach((annualDate) => {
+    const date = new Date(annualDate);
+    const annualDayNum = date.getDay();
+
+    if (annualDayNum === weekOffDayNum) {
+      violations.push({
+        type: 'HARD',
+        nurseId: nurse.id,
+        nurseName: nurse.name,
+        date: annualDate,
+        message: `${nurse.name} - ${annualDate}: 주휴일과 연차가 겹칩니다 (둘 다 ${['일', '월', '화', '수', '목', '금', '토'][weekOffDayNum]}요일)`,
+      });
+    }
+  });
 
   return violations;
 }
@@ -432,6 +610,24 @@ export function validateSchedule(
   nurses.forEach((nurse) => {
     const nightBlockViolations = validateNightBlockLength(nurse.id, nurse.name, schedule);
     violations.push(...nightBlockViolations);
+  });
+
+  // 나이트 후 2일 휴식 규칙 검증
+  nurses.forEach((nurse) => {
+    const nightRestViolations = validateNightRestDays(nurse.id, nurse.name, schedule);
+    violations.push(...nightRestViolations);
+  });
+
+  // 나이트 2주 연속 제한 검증 (소프트 제약)
+  nurses.forEach((nurse) => {
+    const nightTwoWeekViolations = validateNightTwoWeekLimit(nurse.id, nurse.name, schedule);
+    violations.push(...nightTwoWeekViolations);
+  });
+
+  // 주휴일과 연차 겹침 검증
+  nurses.forEach((nurse) => {
+    const annualWeekOffConflict = validateAnnualWeekOffConflict(nurse);
+    violations.push(...annualWeekOffConflict);
   });
 
   return { violations, dailyStaffStatus };
