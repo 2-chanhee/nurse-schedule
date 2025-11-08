@@ -3,7 +3,8 @@ import { DAILY_REQUIRED_STAFF, SHIFT_ORDER, MAX_CONSECUTIVE_WORK_DAYS } from '..
 
 /**
  * 1. 일일 필수 인원 검증
- * D: 3명, M: 1명, E: 3명, N: 2명 필수
+ * D: 3명, E: 3명, N: 2명 필수
+ * M: 1명 권장 (최선을 다하지만 불가능하면 0명 허용)
  */
 export function validateDailyStaffRequirement(
   date: string,
@@ -28,8 +29,8 @@ export function validateDailyStaffRequirement(
     counts[cell.shiftType]++;
   });
 
-  // 필수 인원 체크
-  const requiredShifts: ShiftType[] = ['D', 'M', 'E', 'N'];
+  // 필수 인원 체크 (D, E, N만 필수, M은 제외)
+  const requiredShifts: ShiftType[] = ['D', 'E', 'N'];
   requiredShifts.forEach((shiftType) => {
     const required = DAILY_REQUIRED_STAFF[shiftType];
     const actual = counts[shiftType];
@@ -113,7 +114,107 @@ export function validateShiftOrder(
 }
 
 /**
- * 3. 연속 근무일 제한 검증
+ * 3. 주간 휴식 규칙 검증 (일~토 기준)
+ * 각 주마다: 주휴 1일 + OFF/연차/생휴 최소 1일 = 총 2일 이상
+ */
+export function validateWeeklyRest(
+  nurseId: string,
+  nurseName: string,
+  schedule: ScheduleCell[]
+): Violation[] {
+  const violations: Violation[] = [];
+
+  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬
+  const nurseCells = schedule
+    .filter((s) => s.nurseId === nurseId)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (nurseCells.length === 0) {
+    return violations;
+  }
+
+  // 날짜를 주 단위로 그룹화 (일요일 시작)
+  const weekGroups: Map<string, ScheduleCell[]> = new Map();
+
+  nurseCells.forEach((cell) => {
+    const date = new Date(cell.date);
+    // 해당 주의 일요일 날짜를 키로 사용
+    const dayOfWeek = date.getDay(); // 0 = 일요일
+    const sunday = new Date(date);
+    sunday.setDate(date.getDate() - dayOfWeek);
+    const weekKey = sunday.toISOString().split('T')[0];
+
+    if (!weekGroups.has(weekKey)) {
+      weekGroups.set(weekKey, []);
+    }
+    weekGroups.get(weekKey)!.push(cell);
+  });
+
+  // 각 주마다 검증 (단, 완전한 주만 - 7일인 경우)
+  weekGroups.forEach((weekCells, weekStartDate) => {
+    // 불완전한 주는 검증하지 않음 (스케줄의 시작/끝이 주 중간인 경우)
+    if (weekCells.length < 7) {
+      return; // 이 주는 건너뜀
+    }
+
+    const restTypes: ShiftType[] = ['OFF', 'WEEK_OFF', 'ANNUAL', 'MENSTRUAL'];
+
+    // 휴일별 카운트
+    let weekOffCount = 0;
+    let offCount = 0; // OFF만 카운트 (필수)
+    let annualOrMenstrualCount = 0; // 연차/생휴 (추가 옵션)
+
+    weekCells.forEach((cell) => {
+      if (cell.shiftType === 'WEEK_OFF') {
+        weekOffCount++;
+      } else if (cell.shiftType === 'OFF') {
+        offCount++;
+      } else if (cell.shiftType === 'ANNUAL' || cell.shiftType === 'MENSTRUAL') {
+        annualOrMenstrualCount++;
+      }
+    });
+
+    const totalRestDays = weekOffCount + offCount + annualOrMenstrualCount;
+
+    // 주휴일이 정확히 1일이 아닌 경우
+    if (weekOffCount !== 1) {
+      violations.push({
+        type: 'HARD',
+        nurseId,
+        nurseName,
+        date: weekStartDate,
+        message: `${nurseName} - ${weekStartDate} 주: 주휴일이 ${weekOffCount}일 (정확히 1일 필요)`,
+      });
+    }
+
+    // OFF가 최소 1일 미만인 경우
+    if (offCount < 1) {
+      violations.push({
+        type: 'HARD',
+        nurseId,
+        nurseName,
+        date: weekStartDate,
+        message: `${nurseName} - ${weekStartDate} 주: OFF가 ${offCount}일 (최소 1일 필요)`,
+      });
+    }
+
+    // 총 휴일이 2일 미만인 경우 (이중 검증)
+    if (totalRestDays < 2) {
+      violations.push({
+        type: 'HARD',
+        nurseId,
+        nurseName,
+        date: weekStartDate,
+        message: `${nurseName} - ${weekStartDate} 주: 총 휴일이 ${totalRestDays}일 (최소 2일 필요)`,
+      });
+    }
+  });
+
+  return violations;
+}
+
+/**
+ * 4. 연속 근무일 제한 검증
  * 최대 5일 연속 근무까지만 가능, 6일 이상 불가
  */
 export function validateConsecutiveWorkDays(
@@ -205,7 +306,9 @@ export function validateSchedule(
     });
 
     dailyStaffStatus[date] = {} as Record<ShiftType, 'ok' | 'warning' | 'error'>;
-    const requiredShifts: ShiftType[] = ['D', 'M', 'E', 'N'];
+
+    // D, E, N은 필수 (부족하면 error)
+    const requiredShifts: ShiftType[] = ['D', 'E', 'N'];
     requiredShifts.forEach((shiftType) => {
       const required = DAILY_REQUIRED_STAFF[shiftType];
       const actual = counts[shiftType];
@@ -218,12 +321,29 @@ export function validateSchedule(
         dailyStaffStatus[date][shiftType] = 'ok';
       }
     });
+
+    // M은 권장 (부족해도 warning)
+    const actualM = counts['M'];
+    const requiredM = DAILY_REQUIRED_STAFF['M'];
+    if (actualM < requiredM) {
+      dailyStaffStatus[date]['M'] = 'warning'; // error가 아닌 warning
+    } else if (actualM > requiredM) {
+      dailyStaffStatus[date]['M'] = 'warning';
+    } else {
+      dailyStaffStatus[date]['M'] = 'ok';
+    }
   });
 
   // 근무 순서 규칙 검증
   nurses.forEach((nurse) => {
     const orderViolations = validateShiftOrder(nurse.id, nurse.name, schedule);
     violations.push(...orderViolations);
+  });
+
+  // 주간 휴식 규칙 검증
+  nurses.forEach((nurse) => {
+    const weeklyRestViolations = validateWeeklyRest(nurse.id, nurse.name, schedule);
+    violations.push(...weeklyRestViolations);
   });
 
   // 연속 근무일 제한 검증

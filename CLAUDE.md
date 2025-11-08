@@ -26,6 +26,30 @@ The build process runs `tsc -b` for type checking before `vite build`. Both must
 npm run lint         # Run ESLint on all TypeScript/TSX files
 ```
 
+### Testing
+```bash
+npm run test              # Run tests in watch mode
+npm run test:ui           # Run tests with UI
+npm run test:run          # Run tests once
+npm run test:verbose      # Run tests with detailed output (recommended)
+```
+
+**🔴 IMPORTANT: Final Verification**
+
+Before completing any task or feature, **ALWAYS** run the full test suite:
+
+```bash
+npm run test:verbose
+```
+
+- **All 40 tests must pass** before considering the task complete
+- If any test fails:
+  1. Analyze whether the **code** is wrong or the **test** is wrong
+  2. Fix the issue
+  3. Run `npm run test:verbose` again
+  4. Repeat until all tests pass
+- Never skip this step, even for minor changes
+
 ## TypeScript Configuration
 
 The project uses TypeScript project references with two separate configs:
@@ -94,22 +118,122 @@ This is a nurse scheduling application that automatically generates 4-week sched
 ### Development Process
 
 **🔴 필수: 모든 제약 조건 구현은 테스트 코드 작성과 통합 테스트 통과를 포함합니다.**
+**🔴 중요: 사용자가 요청하지 않아도 Claude가 스스로 모든 테스트를 작성하고 통과시켜야 합니다.**
 
 1. **요구사항 확인**: 사용자 요청을 정확히 이해
 2. **계획 수립**: TodoWrite로 작업 계획 작성
 3. **점진적 구현**: 한 번에 하나씩 구현
    - validator.ts에 검증 로직 추가
    - scheduler.ts에 생성 로직 개선 (필요 시)
-4. **즉시 테스트 코드 작성** ⭐
+4. **즉시 테스트 코드 작성 (자동)** ⭐
+   - 사용자 요청 없이 **Claude가 스스로** 테스트 코드 작성
    - 해당 제약 조건에 대한 단위 테스트 작성
    - 정상 케이스 + 위반 케이스 모두 테스트
    - validator.test.ts 또는 scheduler.test.ts에 추가
-5. **통합 테스트 실행** ⭐
-   - `npm run test:run` 실행
-   - **모든 테스트 통과 확인 (violations.length === 0)**
+5. **개별 테스트 통과 확인** ⭐
+   - `npm run test:verbose` 실행
+   - 새로 추가한 테스트들이 통과하는지 확인
    - 실패 시 코드 수정 후 재실행
-6. **문서화**: SPEC.md 업데이트
-7. **사용자 피드백**: 테스트 방법 제시하고 확인 요청
+6. **통합 테스트 통과 확인** ⭐
+   - 기존의 모든 테스트 + 새 테스트 모두 통과 확인
+   - **특히 AND 조건 통합 테스트 통과 필수**
+   - violations.length === 0 확인
+   - 실패 시 코드 수정 후 5번부터 재실행
+7. **문서화**: SPEC.md 업데이트
+8. **사용자 피드백**: 테스트 방법 제시하고 확인 요청
+
+**⚠️ 4-6번 과정은 자동으로 반복됩니다. 사용자가 "테스트해봐"라고 요청하기 전에 Claude가 먼저 수행합니다.**
+
+### 중간 진행 보고 (Work Progress Communication)
+
+**🔴 중요: 사용자가 프롬프트를 주면 작업 진행 상황을 중간중간 보고해야 합니다.**
+
+작업 중 다음과 같이 진행 상황을 알립니다:
+
+#### 작업 시작 시
+```
+[작업명]을 시작합니다.
+TodoWrite로 작업 목록을 작성하겠습니다:
+1. [할일1]
+2. [할일2]
+...
+```
+
+#### 각 단계 진행 시
+```
+[할일1]을 진행 중입니다...
+- [구체적인 작업 내용]
+- [파일 수정 위치: 파일경로:라인번호]
+
+완료했습니다. 다음 단계로 넘어갑니다.
+```
+
+#### 테스트 실행 시
+```
+테스트를 실행하겠습니다.
+npm run test:verbose 실행 중...
+
+[테스트 결과 요약]
+- 통과: X개
+- 실패: Y개 (있는 경우)
+
+[실패한 경우 원인 분석 및 수정 계획]
+```
+
+#### 전체 작업 완료 시
+```
+모든 작업이 완료되었습니다.
+
+## 📝 작업 요약
+1. ✅ [완료한 작업1] (파일위치)
+2. ✅ [완료한 작업2] (파일위치)
+...
+
+## 🧪 테스트 결과
+- 전체 테스트: 40개 통과
+
+## 📖 문서 업데이트
+- SPEC.md: [추가한 내용]
+- CLAUDE.md: [추가한 내용]
+```
+
+#### 예시
+```
+사용자: "M 할당 우선순위를 높여줘"
+
+Claude:
+"M 할당 우선순위를 최상위로 변경하는 작업을 시작합니다.
+
+TodoWrite로 작업 계획을 작성하겠습니다:
+1. scheduler.ts M 할당 순서 변경 (M 우선)
+2. SPEC.md에 M 할당 규칙 문서화
+3. CLAUDE.md에 기술 내용 추가
+4. npm run test:verbose로 최종 검증
+
+첫 번째 작업을 시작합니다...
+scheduler.ts의 할당 순서를 D→E→N→M에서 M→D→E→N으로 변경했습니다.
+(src/utils/scheduler.ts:123-218)
+
+두 번째 작업을 진행합니다...
+SPEC.md에 M 특별 규칙을 추가했습니다.
+(SPEC.md:108-116)
+
+세 번째 작업을 진행합니다...
+CLAUDE.md에 item 11을 추가했습니다.
+(CLAUDE.md:407-418)
+
+마지막으로 테스트를 실행하겠습니다...
+npm run test:verbose 실행 중...
+
+✅ 모든 테스트(40개) 통과했습니다!
+작업이 완료되었습니다."
+```
+
+**핵심 원칙:**
+- 작업 단계마다 무엇을 하고 있는지 명확히 알림
+- 파일 수정 시 항상 위치 표기 (파일경로:라인번호)
+- 테스트 결과는 반드시 보고
+- 문서 업데이트도 항상 보고
 
 ### Test Requirements (테스트 필수 요구사항)
 
@@ -136,15 +260,25 @@ npm run test          # 감시 모드 (개발 중)
 npm run test:ui       # UI 모드 (브라우저)
 ```
 
-#### 새 제약 조건 구현 시 체크리스트
+#### 새 제약 조건 구현 시 체크리스트 (Claude가 스스로 수행)
+
+**구현 단계:**
 - [ ] validator.ts에 검증 함수 추가
 - [ ] scheduler.ts에 생성 로직 수정 (필요 시)
-- [ ] validator.test.ts에 단위 테스트 추가
+
+**테스트 단계 (자동):**
+- [ ] validator.test.ts에 단위 테스트 추가 (Claude가 스스로 작성)
   - [ ] 정상 케이스 테스트
   - [ ] 위반 케이스 테스트
-- [ ] scheduler.test.ts의 AND 조건 통합 테스트 통과
-- [ ] `npm run test:run` 실행하여 모든 테스트 통과
+  - [ ] 엣지 케이스 테스트
+- [ ] `npm run test:verbose` 실행하여 개별 테스트 통과 확인
+- [ ] scheduler.test.ts의 AND 조건 통합 테스트 통과 확인
+- [ ] `npm run test:verbose` 실행하여 모든 테스트 통과 (violations.length === 0)
+
+**문서화:**
 - [ ] SPEC.md 업데이트 (✅ 완료 표시)
+
+**⚠️ 테스트 단계는 사용자가 요청하지 않아도 Claude가 자동으로 수행합니다.**
 
 ### Coding Standards
 - **주석**: 모든 주석은 한국어로 작성
@@ -269,8 +403,16 @@ src/
 
 ### Remaining Tasks
 - 🚧 나이트 근무 규칙 (2-3일 연속, 2일 휴식, 2주 연속 금지)
-- 🚧 주간 최소 휴일 검증 (주휴 1일 + OFF 1일 이상)
 - 🚧 우클릭 고정/해제 기능
+
+### Weekly Rest Rule (주간 휴식 규칙)
+**정확한 규칙**: 각 주(일~토)마다
+- **주휴(WEEK_OFF)**: 정확히 1일 필수 (본인 지정 요일)
+- **OFF**: 최소 1일 필수
+- **연차/생휴**: 추가 옵션 (선택 사항)
+- **총 휴일**: 최소 2일 (주휴 1일 + OFF 1일 필수)
+
+**중요**: 연차나 생휴가 OFF를 대체할 수 없습니다. OFF는 반드시 1일 이상 필요합니다.
 
 ### Recent Bug Fixes & Lessons Learned
 
@@ -324,6 +466,76 @@ src/
   - warning(초과): 진한 주황색 배경 + 흰색 텍스트 + 두꺼운 테두리 + 맥동 애니메이션
   - 2초 주기 맥동 효과로 자연스럽게 주의 환기
 - **교훈**: 중요한 정보는 애니메이션으로 지속적인 주의 환기
+
+#### 9. 재생성 버튼 매번 다른 스케줄 생성 (src/utils/scheduler.ts:22-26, 75-90)
+- **문제**: 랜덤 요소 제거 후 같은 조건이면 항상 동일한 스케줄 생성 → 재생성 버튼을 눌러도 변화 없음
+- **요구사항**: 재생성 버튼을 누를 때마다 다른 스케줄 제공
+- **해결**:
+  - `generateSimpleSchedule`에 `randomize` 파라미터 추가 (기본값: false)
+  - `randomize=true`일 때만 랜덤 정렬 사용 (UI용)
+  - `randomize=false`일 때는 ID순 정렬 (테스트용, 안정적)
+  - ScheduleView에서 `randomize=true`로 호출 (src/components/ScheduleView.tsx:119)
+- **효과**:
+  - UI: 매번 다양한 스케줄 생성, 사용자가 원하는 조합 선택 가능
+  - 테스트: 항상 동일한 결과로 안정적인 테스트 유지 (40개 모두 통과)
+- **교훈**: UI 편의성과 테스트 안정성을 동시에 만족하려면 옵션 파라미터 활용
+
+#### 10. 날짜 기본값 자동 설정 (src/components/ScheduleView.tsx:14-41)
+- **요구사항**: 가장 빠른 일요일부터 4주 자동 설정
+- **해결**:
+  - 시작일: 오늘이 일요일이면 오늘, 아니면 다음 일요일
+  - 종료일: 시작일 + 27일 (총 28일 = 4주)
+  - 계산 로직:
+    ```typescript
+    const dayOfWeek = today.getDay(); // 0 = 일요일
+    const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+    const nextSunday = new Date(today);
+    nextSunday.setDate(today.getDate() + daysUntilSunday);
+    ```
+- **효과**: 사용자가 페이지 열자마자 바로 4주 스케줄 생성 가능
+- **교훈**: 1주 = 일~토 정의에 맞춰 날짜 계산 로직 구현
+
+#### 11. M(중간 근무) 할당 우선순위 최상위 변경 - 실패 (src/utils/scheduler.ts)
+- **시도**: M을 최우선 배정 (M → D → E → N)
+- **결과**: M=0 발생 감소했으나 여전히 발생
+- **문제**: 사용자 요구사항 오해 - "D, E, N은 무조건 필수, M은 마지막"이었음
+- **교훈**: 요구사항을 정확히 이해하지 못하면 잘못된 방향으로 구현
+
+#### 12. M 정책 변경 및 최적 할당 순서 결정 (src/utils/scheduler.ts:123-225)
+- **문제**:
+  - 재생성 버튼 50회 중 1회 N=0 발생
+  - M 할당 순서에 대한 요구사항 오해
+- **사용자 요구사항 (명확히)**:
+  - **D, E, N은 무조건 필수 인원 충족** (최우선)
+  - M은 최선을 다하지만 불가능하면 0 허용
+  - 단, M=0이 최대한 발생하지 않도록 해야 함
+- **해결 방안 분석**:
+  - **방안 1**: 백트래킹 (복잡, 느림)
+  - **방안 2**: M=0 허용 + 테스트 수정 (현실적) ✅ 선택
+  - **방안 3**: M 할당 규칙 완화 (SPEC 변경)
+- **최종 구현**:
+  - 할당 순서: **D → M → N → E**
+  - M은 D 직후 배정하여 "어제 D였던 사람" 중에서 선택
+  - N은 E보다 먼저 (조건이 더 제한적)
+  - E는 마지막 (조건이 가장 유연)
+- **validator 수정**:
+  - D, E, N만 필수 (부족 시 error)
+  - M은 권장 (부족해도 warning)
+  - src/utils/validator.ts:32-33, 310-334
+- **테스트 수정**:
+  - M 필수 조건 제거 (src/utils/scheduler.test.ts:68-72)
+  - validator 테스트 기대값 변경 (src/utils/validator.test.ts:79, 305)
+- **테스트 결과**:
+  - ✅ **전체 40개 테스트 통과**
+  - ✅ **100회 반복 테스트 성공** (M=0 발생 없음)
+- **효과**:
+  - D, E, N은 항상 충족
+  - M=0 거의 발생하지 않음 (D 직후 배정으로 성공률 극대화)
+  - 그리디 알고리즘의 한계를 할당 순서 최적화로 극복
+- **교훈**:
+  - 요구사항을 정확히 이해하는 것이 가장 중요
+  - 그리디 알고리즘에서는 할당 순서가 결과에 큰 영향을 미침
+  - "D 다음"에만 가능한 M은 D 직후 배정하는 것이 최적
 
 ### When Starting a New Session
 1. Read `SPEC.md` to understand project requirements and current implementation status

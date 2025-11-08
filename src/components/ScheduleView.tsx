@@ -11,16 +11,33 @@ interface ScheduleViewProps {
 }
 
 export default function ScheduleView({ nurses }: ScheduleViewProps) {
-  // 날짜 범위 설정
+  // 날짜 범위 설정: 가장 빨리 오는 일요일부터 4주(28일)
   const [startDate, setStartDate] = useState<string>(() => {
     const today = new Date();
-    return today.toISOString().split('T')[0];
+    const dayOfWeek = today.getDay(); // 0 = 일요일
+
+    // 가장 빨리 오는 일요일 계산
+    const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+    const nextSunday = new Date(today);
+    nextSunday.setDate(today.getDate() + daysUntilSunday);
+
+    return nextSunday.toISOString().split('T')[0];
   });
 
   const [endDate, setEndDate] = useState<string>(() => {
     const today = new Date();
-    const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    return nextMonth.toISOString().split('T')[0];
+    const dayOfWeek = today.getDay(); // 0 = 일요일
+
+    // 가장 빨리 오는 일요일 계산
+    const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+    const nextSunday = new Date(today);
+    nextSunday.setDate(today.getDate() + daysUntilSunday);
+
+    // 4주 후 토요일 (시작일 + 27일 = 28일)
+    const endSaturday = new Date(nextSunday);
+    endSaturday.setDate(nextSunday.getDate() + 27);
+
+    return endSaturday.toISOString().split('T')[0];
   });
 
   // 스케줄 데이터
@@ -115,7 +132,8 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
       return;
     }
 
-    const generatedSchedule = generateSimpleSchedule(nurses, startDate, endDate);
+    // randomize=true로 매번 다른 스케줄 생성
+    const generatedSchedule = generateSimpleSchedule(nurses, startDate, endDate, true);
     setSchedule(generatedSchedule);
   };
 
