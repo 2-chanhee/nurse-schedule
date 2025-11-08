@@ -384,6 +384,95 @@ src/
 
 ---
 
+## 🧪 테스트 규칙
+
+### 테스트 주도 개발 (TDD) 원칙
+
+**🔴 중요: 모든 제약 조건 구현은 반드시 테스트 코드 작성과 통합 테스트 통과를 포함합니다.**
+
+#### 필수 프로세스
+
+1. **제약 조건 구현 완료**
+   - validator.ts에 검증 로직 추가
+   - scheduler.ts에 생성 로직 개선 (필요 시)
+
+2. **즉시 테스트 코드 작성**
+   - 해당 제약 조건에 대한 단위 테스트 작성
+   - 정상 케이스 + 위반 케이스 모두 테스트
+   - 파일 위치: `src/utils/*.test.ts`
+
+3. **통합 테스트 실행**
+   - `npm run test:run` 실행
+   - **모든 테스트 통과 확인**
+   - 실패 시 코드 수정 후 재실행
+
+4. **문서 업데이트**
+   - SPEC.md에 구현 내용 반영
+   - 완료된 기능은 ✅로, 진행 중은 🚧로 표시
+
+#### 테스트 기본 세팅
+
+모든 통합 테스트는 다음 기준을 사용합니다:
+
+```typescript
+const DEFAULT_NURSE_COUNT = 15;  // 기본 간호사 수
+const DEFAULT_START_DATE = '2024-01-01';  // 기본 시작일 (월요일)
+const DEFAULT_END_DATE = '2024-01-28';  // 기본 종료일 (4주)
+const DEFAULT_DAYS = 28;  // 기본 일수 (4주)
+```
+
+#### 통합 테스트 기준
+
+- **AND 조건 테스트**: 모든 하드 제약 조건을 동시에 만족하는지 검증
+- **반복 테스트**: 최소 20회 반복 생성하여 랜덤 요소에도 제약 조건 만족 확인
+- **다양한 기간 테스트**: 1주, 2주, 3주, 4주 모두 테스트
+- **위반 0개**: 통합 테스트에서 violations.length === 0 필수
+
+#### 테스트 파일 구조
+
+```
+src/
+├── utils/
+│   ├── scheduler.ts
+│   ├── scheduler.test.ts       # scheduler 단위/통합 테스트
+│   ├── validator.ts
+│   └── validator.test.ts       # validator 단위 테스트
+└── test/
+    └── setup.ts                # 테스트 환경 설정
+```
+
+#### 테스트 명령어
+
+```bash
+# 한 번만 실행 (CI/CD용)
+npm run test:run
+
+# 상세 로그로 실행 (각 테스트 성공 여부 확인)
+npm run test:verbose
+
+# 감시 모드 (개발 중)
+npm run test
+
+# UI 모드 (브라우저에서 보기)
+npm run test:ui
+```
+
+#### 예시: 나이트 근무 규칙 구현 시
+
+1. ✅ `validator.ts`에 `validateNightShiftRules()` 함수 작성
+2. ✅ `scheduler.ts`에 나이트 2-3일 연속 로직 구현
+3. ✅ `validator.test.ts`에 나이트 규칙 테스트 추가
+   - 2일 연속 정상
+   - 3일 연속 정상
+   - 1일만 위반
+   - 4일 이상 위반
+   - 나이트 후 2일 휴식 확인
+4. ✅ `scheduler.test.ts`의 AND 조건 통합 테스트 통과
+5. ✅ `npm run test:run` 실행하여 모든 테스트 통과
+6. ✅ SPEC.md 업데이트
+
+---
+
 ## 🚀 향후 개선 사항
 
 - [ ] Excel 파일 내보내기/가져오기

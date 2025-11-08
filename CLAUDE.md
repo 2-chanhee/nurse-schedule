@@ -92,12 +92,59 @@ This is a nurse scheduling application that automatically generates 4-week sched
   - 새 세션 시작 시 SPEC.md와 CLAUDE.md를 읽고 프로젝트 상황 파악
 
 ### Development Process
+
+**🔴 필수: 모든 제약 조건 구현은 테스트 코드 작성과 통합 테스트 통과를 포함합니다.**
+
 1. **요구사항 확인**: 사용자 요청을 정확히 이해
 2. **계획 수립**: TodoWrite로 작업 계획 작성
 3. **점진적 구현**: 한 번에 하나씩 구현
-4. **즉시 테스트**: 구현 후 즉시 동작 확인
-5. **문서화**: SPEC.md 업데이트
-6. **사용자 피드백**: 테스트 방법 제시하고 확인 요청
+   - validator.ts에 검증 로직 추가
+   - scheduler.ts에 생성 로직 개선 (필요 시)
+4. **즉시 테스트 코드 작성** ⭐
+   - 해당 제약 조건에 대한 단위 테스트 작성
+   - 정상 케이스 + 위반 케이스 모두 테스트
+   - validator.test.ts 또는 scheduler.test.ts에 추가
+5. **통합 테스트 실행** ⭐
+   - `npm run test:run` 실행
+   - **모든 테스트 통과 확인 (violations.length === 0)**
+   - 실패 시 코드 수정 후 재실행
+6. **문서화**: SPEC.md 업데이트
+7. **사용자 피드백**: 테스트 방법 제시하고 확인 요청
+
+### Test Requirements (테스트 필수 요구사항)
+
+**모든 제약 조건 구현 시 반드시 준수:**
+
+#### 테스트 기본 세팅
+```typescript
+const DEFAULT_NURSE_COUNT = 15;  // 기본 간호사 수
+const DEFAULT_START_DATE = '2024-01-01';  // 기본 시작일
+const DEFAULT_END_DATE = '2024-01-28';  // 기본 종료일 (4주)
+```
+
+#### 통합 테스트 기준
+- ✅ **AND 조건 테스트**: 모든 하드 제약을 동시에 만족하는지 검증
+- ✅ **반복 테스트**: 최소 20회 반복 생성 (랜덤 요소 검증)
+- ✅ **다양한 기간**: 1주, 2주, 3주, 4주 모두 테스트
+- ✅ **위반 0개**: violations.length === 0 필수
+
+#### 테스트 명령어
+```bash
+npm run test:run      # 한 번만 실행 (CI/CD)
+npm run test:verbose  # 상세 로그로 실행 (각 테스트 성공 여부 확인)
+npm run test          # 감시 모드 (개발 중)
+npm run test:ui       # UI 모드 (브라우저)
+```
+
+#### 새 제약 조건 구현 시 체크리스트
+- [ ] validator.ts에 검증 함수 추가
+- [ ] scheduler.ts에 생성 로직 수정 (필요 시)
+- [ ] validator.test.ts에 단위 테스트 추가
+  - [ ] 정상 케이스 테스트
+  - [ ] 위반 케이스 테스트
+- [ ] scheduler.test.ts의 AND 조건 통합 테스트 통과
+- [ ] `npm run test:run` 실행하여 모든 테스트 통과
+- [ ] SPEC.md 업데이트 (✅ 완료 표시)
 
 ### Coding Standards
 - **주석**: 모든 주석은 한국어로 작성
