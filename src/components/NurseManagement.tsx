@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Nurse, DayOfWeek } from '../types';
 import { DAYS_OF_WEEK, DAY_OF_WEEK_LABELS } from '../types';
 import { DEFAULT_NURSE_COUNT } from '../constants';
+import { NurseStorage } from '../utils/storage';
 import '../styles/NurseManagement.css';
 
 interface NurseManagementProps {
@@ -92,6 +93,14 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
     onNursesChange(defaultNurses);
   };
 
+  // 간호사 데이터 초기화
+  const handleReset = () => {
+    if (window.confirm('모든 간호사 데이터를 초기화하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) {
+      onNursesChange([]);
+      NurseStorage.clear();
+    }
+  };
+
   const handleAdd = () => {
     if (!name.trim()) {
       alert('간호사 이름을 입력해주세요.');
@@ -177,11 +186,18 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
     <div className="nurse-management">
       <div className="nurse-management-header">
         <h2>간호사 관리</h2>
-        {nurses.length === 0 && (
-          <button onClick={initializeDefaultNurses} className="btn-init">
-            기본 15명 세팅
-          </button>
-        )}
+        <div className="header-buttons">
+          {nurses.length === 0 && (
+            <button onClick={initializeDefaultNurses} className="btn-init">
+              기본 15명 세팅
+            </button>
+          )}
+          {nurses.length > 0 && (
+            <button onClick={handleReset} className="btn-reset">
+              초기화
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="nurse-form">

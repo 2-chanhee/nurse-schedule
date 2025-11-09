@@ -23,6 +23,11 @@
   color: #111827;
 }
 
+.header-buttons {
+  display: flex;
+  gap: 10px;
+}
+
 .btn-init {
   padding: 10px 20px;
   background-color: #3b82f6;
@@ -37,6 +42,22 @@
 
 .btn-init:hover {
   background-color: #2563eb;
+}
+
+.btn-reset {
+  padding: 10px 20px;
+  background-color: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.btn-reset:hover {
+  background-color: #b91c1c;
 }
 
 .nurse-form {

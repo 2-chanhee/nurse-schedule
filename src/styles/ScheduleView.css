@@ -79,6 +79,22 @@
   background-color: #059669;
 }
 
+.btn-reset-schedule {
+  padding: 8px 20px;
+  background-color: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-reset-schedule:hover {
+  background-color: #b91c1c;
+}
+
 .schedule-table-container {
   background-color: white;
   border-radius: 8px;

@@ -1,14 +1,23 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import NurseManagement from './components/NurseManagement';
 import ScheduleView from './components/ScheduleView';
 import type { Nurse } from './types';
+import { NurseStorage } from './utils/storage';
 import './App.css';
 
 type Tab = 'nurses' | 'schedule';
 
 function App() {
-  const [nurses, setNurses] = useState<Nurse[]>([]);
+  // localStorage에서 간호사 데이터 로드
+  const [nurses, setNurses] = useState<Nurse[]>(() => {
+    return NurseStorage.load<Nurse[]>([]);
+  });
   const [activeTab, setActiveTab] = useState<Tab>('nurses');
+
+  // nurses가 변경될 때마다 localStorage에 저장
+  useEffect(() => {
+    NurseStorage.save(nurses);
+  }, [nurses]);
 
   return (
     <div className="app">

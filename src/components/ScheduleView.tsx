@@ -1,9 +1,15 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { Nurse, ScheduleCell, ShiftType } from '../types';
 import { SHIFT_TYPE_LABELS, SHIFT_TYPE_SHORT_LABELS, DAY_OF_WEEK_LABELS } from '../types';
 import { SHIFT_COLORS, SHIFT_CYCLE } from '../constants';
 import { validateSchedule } from '../utils/validator';
 import { generateSimpleSchedule, generatePreviousSchedule } from '../utils/scheduler';
+import {
+  ScheduleStorage,
+  PreviousScheduleStorage,
+  RejectedAnnualStorage,
+  DateRangeStorage
+} from '../utils/storage';
 import '../styles/ScheduleView.css';
 
 interface ScheduleViewProps {
@@ -11,50 +17,52 @@ interface ScheduleViewProps {
 }
 
 export default function ScheduleView({ nurses }: ScheduleViewProps) {
-  // 날짜 범위 설정: 현재 날 이후의 가장 빠른 일요일부터 4주(28일)
-  const [startDate, setStartDate] = useState<string>(() => {
+  // 기본 날짜 계산 함수
+  const getDefaultStartDate = () => {
     const today = new Date();
     const dayOfWeek = today.getDay(); // 0 = 일요일
-
-    // 현재 날 이후의 가장 빠른 일요일 계산
     const daysUntilSunday = dayOfWeek === 0 ? 7 : 7 - dayOfWeek;
     const nextSunday = new Date(today);
     nextSunday.setDate(today.getDate() + daysUntilSunday);
-
-    // 로컬 날짜를 YYYY-MM-DD 형식으로 변환 (타임존 문제 방지)
     const year = nextSunday.getFullYear();
     const month = String(nextSunday.getMonth() + 1).padStart(2, '0');
     const day = String(nextSunday.getDate()).padStart(2, '0');
-
     return `${year}-${month}-${day}`;
-  });
+  };
 
-  const [endDate, setEndDate] = useState<string>(() => {
-    const today = new Date();
-    const dayOfWeek = today.getDay(); // 0 = 일요일
-
-    // 현재 날 이후의 가장 빠른 일요일 계산
-    const daysUntilSunday = dayOfWeek === 0 ? 7 : 7 - dayOfWeek;
-    const nextSunday = new Date(today);
-    nextSunday.setDate(today.getDate() + daysUntilSunday);
-
-    // 4주 후 토요일 (시작일 + 27일 = 28일)
-    const endSaturday = new Date(nextSunday);
-    endSaturday.setDate(nextSunday.getDate() + 27);
-
-    // 로컬 날짜를 YYYY-MM-DD 형식으로 변환 (타임존 문제 방지)
+  const getDefaultEndDate = (start: string) => {
+    const startDate = new Date(start);
+    const endSaturday = new Date(startDate);
+    endSaturday.setDate(startDate.getDate() + 27);
     const year = endSaturday.getFullYear();
     const month = String(endSaturday.getMonth() + 1).padStart(2, '0');
     const day = String(endSaturday.getDate()).padStart(2, '0');
-
     return `${year}-${month}-${day}`;
+  };
+
+  // 날짜 범위 설정: localStorage에서 로드, 없으면 기본값
+  const [startDate, setStartDate] = useState<string>(() => {
+    const saved = DateRangeStorage.loadStart('');
+    return saved || getDefaultStartDate();
   });
 
-  // 스케줄 데이터
-  const [schedule, setSchedule] = useState<ScheduleCell[]>([]);
+  const [endDate, setEndDate] = useState<string>(() => {
+    const saved = DateRangeStorage.loadEnd('');
+    if (saved) return saved;
+    const defaultStart = getDefaultStartDate();
+    return getDefaultEndDate(defaultStart);
+  });
 
-  // 이전 5일 스케줄 (간호사별)
+  // 스케줄 데이터 - localStorage에서 로드
+  const [schedule, setSchedule] = useState<ScheduleCell[]>(() => {
+    return ScheduleStorage.load<ScheduleCell[]>([]);
+  });
+
+  // 이전 5일 스케줄 (간호사별) - localStorage에서 로드
   const [previousSchedule, setPreviousSchedule] = useState<Record<string, ScheduleCell[]>>(() => {
+    const saved = PreviousScheduleStorage.load<Record<string, ScheduleCell[]> | null>(null);
+    if (saved) return saved;
+
     // 초기값: 각 간호사별로 빈 5일 생성
     const initial: Record<string, ScheduleCell[]> = {};
     nurses.forEach(nurse => {
@@ -70,7 +78,9 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
     date: string;
     reason: string;
   }
-  const [rejectedAnnualLeaves, setRejectedAnnualLeaves] = useState<RejectedAnnualLeave[]>([]);
+  const [rejectedAnnualLeaves, setRejectedAnnualLeaves] = useState<RejectedAnnualLeave[]>(() => {
+    return RejectedAnnualStorage.load<RejectedAnnualLeave[]>([]);
+  });
 
   // 로딩 상태
   const [isGenerating, setIsGenerating] = useState(false);
@@ -80,6 +90,27 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
     bestApproved: 0,
     totalAnnual: 0,
   });
+
+  // localStorage에 저장 (상태 변경 시)
+  useEffect(() => {
+    ScheduleStorage.save(schedule);
+  }, [schedule]);
+
+  useEffect(() => {
+    PreviousScheduleStorage.save(previousSchedule);
+  }, [previousSchedule]);
+
+  useEffect(() => {
+    RejectedAnnualStorage.save(rejectedAnnualLeaves);
+  }, [rejectedAnnualLeaves]);
+
+  useEffect(() => {
+    DateRangeStorage.saveStart(startDate);
+  }, [startDate]);
+
+  useEffect(() => {
+    DateRangeStorage.saveEnd(endDate);
+  }, [endDate]);
 
   // 이전 5일 날짜 배열 생성 (스케줄 시작일 기준 -5, -4, -3, -2, -1)
   const previousDateList = useMemo(() => {
@@ -243,6 +274,23 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
     return schedule.filter(
       (s) => s.nurseId === nurseId && s.shiftType === shiftType
     ).length;
+  };
+
+  // 스케줄 데이터 초기화
+  const handleReset = () => {
+    if (window.confirm('모든 스케줄 데이터를 초기화하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) {
+      setSchedule([]);
+      setPreviousSchedule({});
+      setRejectedAnnualLeaves([]);
+      const defaultStart = getDefaultStartDate();
+      const defaultEnd = getDefaultEndDate(defaultStart);
+      setStartDate(defaultStart);
+      setEndDate(defaultEnd);
+      ScheduleStorage.clear();
+      PreviousScheduleStorage.clear();
+      RejectedAnnualStorage.clear();
+      DateRangeStorage.clear();
+    }
   };
 
   // 자동 생성 핸들러
@@ -542,6 +590,11 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
           <button onClick={handleAutoGenerate} className="btn-auto-generate">
             {schedule.length > 0 ? '재생성' : '자동 생성'}
           </button>
+          {schedule.length > 0 && (
+            <button onClick={handleReset} className="btn-reset-schedule">
+              초기화
+            </button>
+          )}
         </div>
       </div>
 
