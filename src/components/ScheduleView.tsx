@@ -102,10 +102,12 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
     return dates;
   }, [startDate, endDate]);
 
-  // 검증 결과 계산
+  // 검증 결과 계산 (이전 스케줄 포함)
   const validationResult = useMemo(() => {
-    return validateSchedule(schedule, nurses);
-  }, [schedule, nurses]);
+    // previousSchedule을 1차원 배열로 변환
+    const previousCells: ScheduleCell[] = Object.values(previousSchedule).flatMap(cells => cells);
+    return validateSchedule(schedule, nurses, previousCells);
+  }, [schedule, nurses, previousSchedule]);
 
   // 특정 셀의 근무 타입 가져오기
   const getShiftType = (nurseId: string, date: string): ShiftType => {
@@ -251,113 +253,156 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
       return;
     }
 
-    // 1. 이전 5일 스케줄 생성 (제약조건 만족)
-    const generatedPreviousSchedule = generatePreviousSchedule(nurses, startDate, true);
+    // 하드 제약 위반 없는 스케줄 생성 (최대 1000회 시도)
+    const MAX_ATTEMPTS = 1000;
+    let attempt = 0;
+    let finalSchedule: ScheduleCell[] = [];
+    let finalPreviousSchedule: Record<string, ScheduleCell[]> = {};
+    let rejectedList: RejectedAnnualLeave[] = [];
+    let foundValidSchedule = false;
 
-    // 2. 간호사별로 정리
-    const previousScheduleByNurse: Record<string, ScheduleCell[]> = {};
-    nurses.forEach(nurse => {
-      previousScheduleByNurse[nurse.id] = generatedPreviousSchedule.filter(cell => cell.nurseId === nurse.id);
-    });
+    console.log('🔄 하드 제약 위반 없는 스케줄 생성 시작...');
 
-    // 3. previousSchedule state 업데이트
-    setPreviousSchedule(previousScheduleByNurse);
+    while (attempt < MAX_ATTEMPTS && !foundValidSchedule) {
+      attempt++;
 
-    // 4. 이전 5일 정보
-    const previousScheduleInfo = {
-      schedules: previousScheduleByNurse,
-    };
+      // 1. 이전 5일 스케줄 생성 (제약조건 만족)
+      // randomize=true로 생성하여 매번 다른 이전 스케줄 생성 (테스트용)
+      const generatedPreviousSchedule = generatePreviousSchedule(nurses, startDate, true);
 
-    // 5. 기존 스케줄에서 고정된 셀 추출 (주휴일 등)
-    const fixedCells = schedule.filter(cell => cell.isFixed && cell.shiftType !== 'ANNUAL');
+      // 2. 간호사별로 정리
+      const previousScheduleByNurse: Record<string, ScheduleCell[]> = {};
+      nurses.forEach(nurse => {
+        previousScheduleByNurse[nurse.id] = generatedPreviousSchedule.filter(cell => cell.nurseId === nurse.id);
+      });
 
-    // 6. 연차 승인/반려 로직
-    const approvedAnnualLeaves: Record<string, string[]> = {};
-    const rejectedList: RejectedAnnualLeave[] = [];
+      // 3. 이전 5일 정보 (연차 검증과 최종 생성 모두 동일한 이전 스케줄 사용)
+      const previousScheduleInfo = {
+        schedules: previousScheduleByNurse,
+      };
 
-    // 모든 연차를 수집
-    interface AnnualLeaveRequest {
-      nurseId: string;
-      nurseName: string;
-      date: string;
-    }
-    const allAnnualLeaves: AnnualLeaveRequest[] = [];
-    nurses.forEach(nurse => {
-      if (nurse.annualLeaveDates && nurse.annualLeaveDates.length > 0) {
-        nurse.annualLeaveDates.forEach(date => {
-          allAnnualLeaves.push({ nurseId: nurse.id, nurseName: nurse.name, date });
-        });
+      // 4. 기존 스케줄에서 고정된 셀 추출 (주휴일 등)
+      const fixedCells = schedule.filter(cell => cell.isFixed && cell.shiftType !== 'ANNUAL');
+
+      // 5. 연차 승인/반려 로직
+      const approvedAnnualLeaves: Record<string, string[]> = {};
+      const currentRejectedList: RejectedAnnualLeave[] = [];
+
+      // 모든 연차를 수집
+      interface AnnualLeaveRequest {
+        nurseId: string;
+        nurseName: string;
+        date: string;
       }
-    });
+      const allAnnualLeaves: AnnualLeaveRequest[] = [];
+      nurses.forEach(nurse => {
+        if (nurse.annualLeaveDates && nurse.annualLeaveDates.length > 0) {
+          nurse.annualLeaveDates.forEach(date => {
+            allAnnualLeaves.push({ nurseId: nurse.id, nurseName: nurse.name, date });
+          });
+        }
+      });
 
-    // 각 연차를 하나씩 검증
-    for (const annual of allAnnualLeaves) {
-      // 임시로 이 연차를 승인 목록에 추가
-      const tempApproved: Record<string, string[]> = {};
-      for (const nurseId in approvedAnnualLeaves) {
-        tempApproved[nurseId] = [...approvedAnnualLeaves[nurseId]];
-      }
-      if (!tempApproved[annual.nurseId]) {
-        tempApproved[annual.nurseId] = [];
-      }
-      tempApproved[annual.nurseId].push(annual.date);
+      // 각 연차를 하나씩 검증
+      for (const annual of allAnnualLeaves) {
+        // 임시로 이 연차를 승인 목록에 추가
+        const tempApproved: Record<string, string[]> = {};
+        for (const nurseId in approvedAnnualLeaves) {
+          tempApproved[nurseId] = [...approvedAnnualLeaves[nurseId]];
+        }
+        if (!tempApproved[annual.nurseId]) {
+          tempApproved[annual.nurseId] = [];
+        }
+        tempApproved[annual.nurseId].push(annual.date);
 
-      // 임시 스케줄 생성 (검증용)
-      const tempSchedule = generateSimpleSchedule(
+        // 임시 스케줄 생성 (검증용)
+        const tempSchedule = generateSimpleSchedule(
+          nurses,
+          startDate,
+          endDate,
+          false, // 검증용이므로 randomize=false
+          fixedCells,
+          previousScheduleInfo,
+          tempApproved
+        );
+
+        // 제약조건 검증 (하드 제약만 체크, 이전 스케줄 포함)
+        const previousCellArrays: ScheduleCell[][] = Object.values(previousScheduleInfo.schedules);
+        const previousCells: ScheduleCell[] = [];
+        for (const cells of previousCellArrays) {
+          previousCells.push(...cells);
+        }
+        const validation = validateSchedule(tempSchedule, nurses, previousCells);
+        const hardViolations = validation.violations.filter(v => v.type === 'HARD');
+
+        if (hardViolations.length === 0) {
+          // 승인 (소프트 제약 위반은 허용)
+          if (!approvedAnnualLeaves[annual.nurseId]) {
+            approvedAnnualLeaves[annual.nurseId] = [];
+          }
+          approvedAnnualLeaves[annual.nurseId].push(annual.date);
+        } else {
+          // 반려 (하드 제약 위반 사유만 추출)
+          const relatedViolations = hardViolations.filter(
+            v => v.date === annual.date || v.nurseId === annual.nurseId
+          );
+          const reasons = relatedViolations.length > 0
+            ? relatedViolations.map(v => v.message).join(', ')
+            : '하드 제약조건 위반';
+
+          currentRejectedList.push({
+            nurseId: annual.nurseId,
+            nurseName: annual.nurseName,
+            date: annual.date,
+            reason: reasons,
+          });
+        }
+      }
+
+      // 6. 최종 스케줄 생성 (승인된 연차만 포함)
+      const generatedSchedule = generateSimpleSchedule(
         nurses,
         startDate,
         endDate,
-        false, // 검증용이므로 randomize=false
+        true, // UI용이므로 randomize=true
         fixedCells,
         previousScheduleInfo,
-        tempApproved
+        approvedAnnualLeaves
       );
 
-      // 제약조건 검증 (하드 제약만 체크)
-      const validation = validateSchedule(tempSchedule, nurses);
-      const hardViolations = validation.violations.filter(v => v.type === 'HARD');
+      // 7. 최종 스케줄 검증 (이전 스케줄 포함)
+      const previousCellArraysFinal: ScheduleCell[][] = Object.values(previousScheduleInfo.schedules);
+      const previousCellsFinal: ScheduleCell[] = [];
+      for (const cells of previousCellArraysFinal) {
+        previousCellsFinal.push(...cells);
+      }
+      const finalValidation = validateSchedule(generatedSchedule, nurses, previousCellsFinal);
+      const finalHardViolations = finalValidation.violations.filter(v => v.type === 'HARD');
 
-      if (hardViolations.length === 0) {
-        // 승인 (소프트 제약 위반은 허용)
-        if (!approvedAnnualLeaves[annual.nurseId]) {
-          approvedAnnualLeaves[annual.nurseId] = [];
-        }
-        approvedAnnualLeaves[annual.nurseId].push(annual.date);
-      } else {
-        // 반려 (하드 제약 위반 사유만 추출)
-        const relatedViolations = hardViolations.filter(
-          v => v.date === annual.date || v.nurseId === annual.nurseId
-        );
-        const reasons = relatedViolations.length > 0
-          ? relatedViolations.map(v => v.message).join(', ')
-          : '하드 제약조건 위반';
-
-        rejectedList.push({
-          nurseId: annual.nurseId,
-          nurseName: annual.nurseName,
-          date: annual.date,
-          reason: reasons,
-        });
+      // 8. 하드 제약 위반 체크
+      if (finalHardViolations.length === 0) {
+        // 성공! 하드 제약 위반 없음
+        foundValidSchedule = true;
+        finalSchedule = generatedSchedule;
+        finalPreviousSchedule = previousScheduleByNurse;
+        rejectedList = currentRejectedList;
+        console.log(`✅ ${attempt}번째 시도에서 하드 제약 위반 없는 스케줄 생성 성공!`);
+      } else if (attempt % 100 === 0) {
+        // 100번마다 진행상황 로그
+        console.log(`⏳ ${attempt}번째 시도 중... (하드 제약 위반: ${finalHardViolations.length}개)`);
       }
     }
 
-    // 7. 반려된 연차 목록 업데이트
-    setRejectedAnnualLeaves(rejectedList);
-
-    // 8. 최종 스케줄 생성 (승인된 연차만 포함)
-    const finalSchedule = generateSimpleSchedule(
-      nurses,
-      startDate,
-      endDate,
-      true, // UI용이므로 randomize=true
-      fixedCells,
-      previousScheduleInfo,
-      approvedAnnualLeaves
-    );
-
-    setSchedule(finalSchedule);
-
-    // 9. 반려된 연차는 UI에 자동으로 표시됨 (alert 제거)
+    // 루프 종료 후 처리
+    if (foundValidSchedule) {
+      console.log(`🎉 총 ${attempt}번 시도하여 성공!`);
+      setPreviousSchedule(finalPreviousSchedule);
+      setSchedule(finalSchedule);
+      setRejectedAnnualLeaves(rejectedList);
+    } else {
+      console.log(`❌ ${MAX_ATTEMPTS}번 시도했지만 하드 제약 위반 없는 스케줄을 생성하지 못했습니다.`);
+      alert(`${MAX_ATTEMPTS}번 시도했지만 모든 하드 제약을 만족하는 스케줄을 생성하지 못했습니다. 간호사 수나 제약 조건을 조정해주세요.`);
+    }
   };
 
   // 요일 가져오기

@@ -360,10 +360,10 @@ export function generateSimpleSchedule(
           nightCount++;
           nightBlockStatus[nurse.id] = 3; // 3일차로 전환
         } else {
-          nightBlockStatus[nurse.id] = 0; // 나이트 종료 (오늘 배정 업데이트에서 nightRestDaysRemaining 설정)
+          nightBlockStatus[nurse.id] = 0; // 나이트 종료 (배정 업데이트에서 nightRestDaysRemaining 설정)
         }
       }
-      // status === 3이면 반드시 종료 (오늘 배정 업데이트에서 nightRestDaysRemaining 설정)
+      // status === 3이면 반드시 종료 (배정 업데이트에서 nightRestDaysRemaining 설정)
     }
 
     // 3-2. 부족한 만큼 새로운 나이트 시작 (1일차)

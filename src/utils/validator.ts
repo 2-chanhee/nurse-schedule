@@ -52,16 +52,27 @@ export function validateDailyStaffRequirement(
 /**
  * 2. 근무 순서 규칙 검증
  * D → M → E → N → 휴일 순서만 가능, 역순 불가
+ * @param previousSchedule - 이전 5일 스케줄 (근무 순서 연속성 검증에 필요)
  */
 export function validateShiftOrder(
   nurseId: string,
   nurseName: string,
-  schedule: ScheduleCell[]
+  schedule: ScheduleCell[],
+  previousSchedule: ScheduleCell[] = []
 ): Violation[] {
   const violations: Violation[] = [];
 
-  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬
-  const nurseCells = schedule
+  // 이전 스케줄 + 메인 스케줄 합치기
+  const combinedSchedule = [...previousSchedule, ...schedule];
+
+  // 메인 스케줄의 날짜 범위 계산 (위반 보고는 메인 스케줄 범위 내만)
+  const mainDates = Array.from(new Set(schedule.map((s) => s.date))).sort();
+  const firstMainDate = mainDates.length > 0 ? mainDates[0] : '';
+  const lastMainDate = mainDates.length > 0 ? mainDates[mainDates.length - 1] : '';
+  const isInMainSchedule = (date: string) => date >= firstMainDate && date <= lastMainDate;
+
+  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬 (이전 + 메인)
+  const nurseCells = combinedSchedule
     .filter((s) => s.nurseId === nurseId)
     .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -98,8 +109,8 @@ export function validateShiftOrder(
       continue;
     }
 
-    // 역순 체크: 현재가 이전보다 작으면 역순
-    if (currIndex < prevIndex) {
+    // 역순 체크: 현재가 이전보다 작으면 역순 (메인 스케줄 범위 내만 보고)
+    if (currIndex < prevIndex && isInMainSchedule(currCell.date)) {
       violations.push({
         type: 'HARD',
         nurseId,
@@ -116,16 +127,26 @@ export function validateShiftOrder(
 /**
  * 3. 주간 휴식 규칙 검증 (일~토 기준)
  * 각 주마다: 주휴 1일 + OFF/연차/생휴 최소 1일 = 총 2일 이상
+ * @param previousSchedule - 이전 5일 스케줄 (주 경계를 넘는 경우 필요)
  */
 export function validateWeeklyRest(
   nurseId: string,
   nurseName: string,
-  schedule: ScheduleCell[]
+  schedule: ScheduleCell[],
+  previousSchedule: ScheduleCell[] = []
 ): Violation[] {
   const violations: Violation[] = [];
 
-  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬
-  const nurseCells = schedule
+  // 이전 스케줄 + 메인 스케줄 합치기
+  const combinedSchedule = [...previousSchedule, ...schedule];
+
+  // 메인 스케줄의 날짜 범위 계산 (위반 보고는 메인 스케줄에 속한 주만)
+  const mainDates = Array.from(new Set(schedule.map((s) => s.date))).sort();
+  const firstMainDate = mainDates.length > 0 ? mainDates[0] : '';
+  const lastMainDate = mainDates.length > 0 ? mainDates[mainDates.length - 1] : '';
+
+  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬 (이전 + 메인)
+  const nurseCells = combinedSchedule
     .filter((s) => s.nurseId === nurseId)
     .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -155,6 +176,12 @@ export function validateWeeklyRest(
     // 불완전한 주는 검증하지 않음 (스케줄의 시작/끝이 주 중간인 경우)
     if (weekCells.length < 7) {
       return; // 이 주는 건너뜀
+    }
+
+    // 이 주가 메인 스케줄에 속하는지 확인 (주의 날짜 중 하나라도 메인 범위 내면 검증)
+    const hasMainDate = weekCells.some(cell => cell.date >= firstMainDate && cell.date <= lastMainDate);
+    if (!hasMainDate) {
+      return; // 메인 스케줄에 속하지 않은 주는 건너뜀
     }
 
     // 휴일별 카운트
@@ -216,20 +243,31 @@ export function validateWeeklyRest(
  * - 나이트는 2일 또는 3일 연속만 가능
  * - 1일만 근무 불가
  * - 4일 이상 연속 불가
+ * @param previousSchedule - 이전 5일 스케줄 (연속성 검증에 필요)
  */
 export function validateNightBlockLength(
   nurseId: string,
   nurseName: string,
-  schedule: ScheduleCell[]
+  schedule: ScheduleCell[],
+  previousSchedule: ScheduleCell[] = []
 ): Violation[] {
   const violations: Violation[] = [];
 
-  // 전체 스케줄의 마지막 날짜 계산
-  const allDates = schedule.map((s) => s.date).sort();
-  const lastDate = allDates.length > 0 ? allDates[allDates.length - 1] : '';
+  // 이전 스케줄 + 메인 스케줄 합치기
+  const combinedSchedule = [...previousSchedule, ...schedule];
 
-  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬
-  const nurseCells = schedule
+  // 메인 스케줄의 날짜 범위 계산 (위반 보고는 메인 스케줄 범위 내만)
+  const mainDates = Array.from(new Set(schedule.map((s) => s.date))).sort();
+  const firstMainDate = mainDates.length > 0 ? mainDates[0] : '';
+  const lastMainDate = mainDates.length > 0 ? mainDates[mainDates.length - 1] : '';
+
+  // 날짜가 메인 스케줄 범위 내인지 확인하는 헬퍼 함수
+  const isInMainSchedule = (date: string) => {
+    return date >= firstMainDate && date <= lastMainDate;
+  };
+
+  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬 (이전 + 메인)
+  const nurseCells = combinedSchedule
     .filter((s) => s.nurseId === nurseId)
     .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -247,8 +285,8 @@ export function validateNightBlockLength(
       }
       consecutiveNightDays++;
 
-      // 4일 이상 연속 나이트 시 위반
-      if (consecutiveNightDays > 3) {
+      // 4일 이상 연속 나이트 시 위반 (메인 스케줄 범위 내만 보고)
+      if (consecutiveNightDays > 3 && isInMainSchedule(cell.date)) {
         violations.push({
           type: 'HARD',
           nurseId,
@@ -263,8 +301,9 @@ export function validateNightBlockLength(
         // 나이트 블록이 끝남 -> 길이 체크
         if (consecutiveNightDays === 1) {
           // 1일만 나이트 근무 시 위반 (단, 마지막 날 예외)
-          const isLastDayNight = nightStartDate === lastDate;
-          if (!isLastDayNight) {
+          // 메인 스케줄 범위 내의 날짜만 보고
+          const isLastDayNight = nightStartDate === lastMainDate;
+          if (!isLastDayNight && isInMainSchedule(nightStartDate)) {
             violations.push({
               type: 'HARD',
               nurseId,
@@ -290,16 +329,28 @@ export function validateNightBlockLength(
 /**
  * 5. 나이트 후 2일 휴식 규칙 검증
  * 나이트 근무 종료 후 최소 2일 연속 휴식 필요
+ * @param previousSchedule - 이전 5일 스케줄 (나이트 후 휴식 연속성 검증에 필요)
  */
 export function validateNightRestDays(
   nurseId: string,
   nurseName: string,
-  schedule: ScheduleCell[]
+  schedule: ScheduleCell[],
+  previousSchedule: ScheduleCell[] = []
 ): Violation[] {
   const violations: Violation[] = [];
 
-  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬
-  const nurseCells = schedule
+  // 이전 스케줄 + 메인 스케줄 합치기
+  const combinedSchedule = [...previousSchedule, ...schedule];
+
+  // 메인 스케줄의 날짜 범위 계산 (위반 보고는 메인 스케줄 범위 내만)
+  const mainDates = Array.from(new Set(schedule.map((s) => s.date))).sort();
+  const firstMainDate = mainDates.length > 0 ? mainDates[0] : '';
+  const lastMainDate = mainDates.length > 0 ? mainDates[mainDates.length - 1] : '';
+  const secondLastDate = mainDates.length > 1 ? mainDates[mainDates.length - 2] : '';
+  const isInMainSchedule = (date: string) => date >= firstMainDate && date <= lastMainDate;
+
+  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬 (이전 + 메인)
+  const nurseCells = combinedSchedule
     .filter((s) => s.nurseId === nurseId)
     .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -336,13 +387,11 @@ export function validateNightRestDays(
 
         // 마지막 2일 이내에 나이트 종료 시 검증 제외
         // (다음 4주 스케줄로 이어질 수 있으므로 현재 스케줄만으로는 판단 불가)
-        const uniqueDates = Array.from(new Set(schedule.map((s) => s.date))).sort();
-        const lastDate = uniqueDates.length > 0 ? uniqueDates[uniqueDates.length - 1] : '';
-        const secondLastDate = uniqueDates.length > 1 ? uniqueDates[uniqueDates.length - 2] : '';
-        const isLastTwoDays = nightEndDate === lastDate || nightEndDate === secondLastDate;
+        const isLastTwoDays = nightEndDate === lastMainDate || nightEndDate === secondLastDate;
 
         // 2일 연속 휴식이 아닌 경우 위반 (단, 마지막 2일 이내 종료는 예외)
-        if (restDaysAfterNight < 2 && !isLastTwoDays) {
+        // 메인 스케줄 범위 내만 보고
+        if (restDaysAfterNight < 2 && !isLastTwoDays && isInMainSchedule(nightEndDate)) {
           violations.push({
             type: 'HARD',
             nurseId,
@@ -437,12 +486,22 @@ export function validateNightTwoWeekLimit(
 export function validateConsecutiveWorkDays(
   nurseId: string,
   nurseName: string,
-  schedule: ScheduleCell[]
+  schedule: ScheduleCell[],
+  previousSchedule: ScheduleCell[] = []
 ): Violation[] {
   const violations: Violation[] = [];
 
-  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬
-  const nurseCells = schedule
+  // 이전 스케줄 + 메인 스케줄 합치기
+  const combinedSchedule = [...previousSchedule, ...schedule];
+
+  // 메인 스케줄의 날짜 범위 계산 (위반 보고는 메인 스케줄 범위 내만)
+  const mainDates = Array.from(new Set(schedule.map((s) => s.date))).sort();
+  const firstMainDate = mainDates.length > 0 ? mainDates[0] : '';
+  const lastMainDate = mainDates.length > 0 ? mainDates[mainDates.length - 1] : '';
+  const isInMainSchedule = (date: string) => date >= firstMainDate && date <= lastMainDate;
+
+  // 해당 간호사의 스케줄만 필터링하고 날짜순 정렬 (이전 + 메인)
+  const nurseCells = combinedSchedule
     .filter((s) => s.nurseId === nurseId)
     .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -462,8 +521,8 @@ export function validateConsecutiveWorkDays(
       // 근무일이면 카운트 증가
       consecutiveWorkDays++;
 
-      // 6일 이상 연속 근무 시 위반
-      if (consecutiveWorkDays > MAX_CONSECUTIVE_WORK_DAYS) {
+      // 6일 이상 연속 근무 시 위반 (메인 스케줄 범위 내만 보고)
+      if (consecutiveWorkDays > MAX_CONSECUTIVE_WORK_DAYS && isInMainSchedule(cell.date)) {
         violations.push({
           type: 'HARD',
           nurseId,
@@ -525,7 +584,8 @@ export function validateAnnualWeekOffConflict(nurse: Nurse): Violation[] {
  */
 export function validateSchedule(
   schedule: ScheduleCell[],
-  nurses: Nurse[]
+  nurses: Nurse[],
+  previousSchedule: ScheduleCell[] = [] // 이전 5일 스케줄 (선택)
 ): {
   violations: Violation[];
   dailyStaffStatus: Record<string, Record<ShiftType, 'ok' | 'warning' | 'error'>>;
@@ -588,33 +648,33 @@ export function validateSchedule(
     }
   });
 
-  // 근무 순서 규칙 검증
+  // 근무 순서 규칙 검증 (이전 스케줄 포함)
   nurses.forEach((nurse) => {
-    const orderViolations = validateShiftOrder(nurse.id, nurse.name, schedule);
+    const orderViolations = validateShiftOrder(nurse.id, nurse.name, schedule, previousSchedule);
     violations.push(...orderViolations);
   });
 
-  // 주간 휴식 규칙 검증
+  // 주간 휴식 규칙 검증 (이전 스케줄 포함)
   nurses.forEach((nurse) => {
-    const weeklyRestViolations = validateWeeklyRest(nurse.id, nurse.name, schedule);
+    const weeklyRestViolations = validateWeeklyRest(nurse.id, nurse.name, schedule, previousSchedule);
     violations.push(...weeklyRestViolations);
   });
 
-  // 연속 근무일 제한 검증
+  // 연속 근무일 제한 검증 (이전 스케줄 포함)
   nurses.forEach((nurse) => {
-    const consecutiveViolations = validateConsecutiveWorkDays(nurse.id, nurse.name, schedule);
+    const consecutiveViolations = validateConsecutiveWorkDays(nurse.id, nurse.name, schedule, previousSchedule);
     violations.push(...consecutiveViolations);
   });
 
-  // 나이트 2-3일 연속 규칙 검증
+  // 나이트 2-3일 연속 규칙 검증 (이전 스케줄 포함)
   nurses.forEach((nurse) => {
-    const nightBlockViolations = validateNightBlockLength(nurse.id, nurse.name, schedule);
+    const nightBlockViolations = validateNightBlockLength(nurse.id, nurse.name, schedule, previousSchedule);
     violations.push(...nightBlockViolations);
   });
 
-  // 나이트 후 2일 휴식 규칙 검증
+  // 나이트 후 2일 휴식 규칙 검증 (이전 스케줄 포함)
   nurses.forEach((nurse) => {
-    const nightRestViolations = validateNightRestDays(nurse.id, nurse.name, schedule);
+    const nightRestViolations = validateNightRestDays(nurse.id, nurse.name, schedule, previousSchedule);
     violations.push(...nightRestViolations);
   });
 
