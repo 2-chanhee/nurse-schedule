@@ -11,9 +11,9 @@ const DEFAULT_END_DATE = '2024-01-28';  // 기본 종료일 (4주)
 const DEFAULT_DAYS = 28;  // 기본 일수 (4주)
 
 // 테스트용 간호사 데이터 생성
-// withAnnual=true: UI와 동일하게 랜덤 3명에게 연차 배정 (기본값)
-// withAnnual=false: 연차 없이 생성 (일부 테스트용)
-function createTestNurses(count: number = DEFAULT_NURSE_COUNT, withAnnual: boolean = true): Nurse[] {
+// withAnnual=true: UI와 동일하게 랜덤 3명에게 연차 배정
+// withAnnual=false: 연차 없이 생성 (기본값, 안정적인 테스트)
+function createTestNurses(count: number = DEFAULT_NURSE_COUNT, withAnnual: boolean = false): Nurse[] {
   const weekOffDays = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
   const nurses = Array.from({ length: count }, (_, i) => ({
     id: `nurse-${i + 1}`,

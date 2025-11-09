@@ -1,4 +1,4 @@
-import type { Nurse, ScheduleCell, ShiftType, DayOfWeek } from '../types';
+import type { Nurse, ScheduleCell, ShiftType, DayOfWeek, PreviousScheduleInfo } from '../types';
 import { DAILY_REQUIRED_STAFF, MAX_CONSECUTIVE_WORK_DAYS } from '../constants';
 
 /**
@@ -19,13 +19,17 @@ function getDayOfWeek(date: Date): DayOfWeek {
  *
  * @param randomize - true일 경우 매번 다른 스케줄 생성 (UI용), false일 경우 동일한 결과 (테스트용, 기본값)
  * @param fixedCells - 고정된 셀 목록 (재생성 시 유지됨)
+ * @param previousScheduleInfo - 이전 4일 스케줄 정보 (제약 조건 검증에 사용)
+ * @param approvedAnnualLeaves - 승인된 연차 목록 (nurseId -> 날짜 배열), undefined이면 모든 연차 포함
  */
 export function generateSimpleSchedule(
   nurses: Nurse[],
   startDate: string,
   endDate: string,
   randomize: boolean = false,
-  fixedCells: ScheduleCell[] = []
+  fixedCells: ScheduleCell[] = [],
+  previousScheduleInfo?: PreviousScheduleInfo,
+  approvedAnnualLeaves?: Record<string, string[]>
 ): ScheduleCell[] {
   // 고정된 셀로 시작
   const schedule: ScheduleCell[] = [...fixedCells];
@@ -76,6 +80,80 @@ export function generateSimpleSchedule(
     nightRestDaysRemaining[nurse.id] = 0;
   });
 
+  // 이전 4일 스케줄 정보를 사용하여 초기 상태 설정
+  if (previousScheduleInfo) {
+    const restTypes: ShiftType[] = ['OFF', 'WEEK_OFF', 'ANNUAL', 'MENSTRUAL'];
+
+    for (const nurse of nurses) {
+      const nursePrevSchedule = previousScheduleInfo.schedules[nurse.id] || [];
+
+      // 날짜순 정렬 (오래된 것부터: -4, -3, -2, -1)
+      const sortedSchedule = [...nursePrevSchedule].sort((a, b) => a.date.localeCompare(b.date));
+
+      if (sortedSchedule.length > 0) {
+        // 1. lastShift: 가장 최근 날짜 (-1일)의 shift type
+        lastShift[nurse.id] = sortedSchedule[sortedSchedule.length - 1].shiftType;
+
+        // 2. consecutiveWorkDays: 역순으로 순회하면서 연속 근무일 계산
+        let consecutiveDays = 0;
+        for (let i = sortedSchedule.length - 1; i >= 0; i--) {
+          const shiftType = sortedSchedule[i].shiftType;
+          if (restTypes.includes(shiftType)) {
+            break; // 휴일 만나면 중단
+          }
+          consecutiveDays++;
+        }
+        consecutiveWorkDays[nurse.id] = consecutiveDays;
+
+        // 3. nightBlockStatus: 역순으로 순회하면서 N의 연속 횟수 파악
+        let nightDays = 0;
+        for (let i = sortedSchedule.length - 1; i >= 0; i--) {
+          const shiftType = sortedSchedule[i].shiftType;
+          if (shiftType === 'N') {
+            nightDays++;
+          } else {
+            break; // N이 아니면 중단
+          }
+        }
+        // 나이트 블록이 계속 진행 중이면 상태 설정 (최대 3일)
+        if (nightDays > 0) {
+          nightBlockStatus[nurse.id] = Math.min(nightDays, 3);
+        }
+
+        // 4. nightRestDaysRemaining: 나이트 블록 종료 후 경과일 계산
+        // 마지막 날부터 역순으로 순회하면서:
+        // 1) 먼저 연속된 휴일 개수를 세기
+        // 2) 그 이전에 N 블록이 있으면 nightRestDaysRemaining 설정
+        if (nightBlockStatus[nurse.id] === 0) {
+          // 나이트 블록이 진행 중이 아닐 때만 휴식일 계산
+          let restDaysCount = 0;
+          let foundNight = false;
+
+          // 마지막 날부터 역순으로 확인
+          for (let i = sortedSchedule.length - 1; i >= 0; i--) {
+            const shiftType = sortedSchedule[i].shiftType;
+
+            if (!foundNight && restTypes.includes(shiftType)) {
+              // 아직 N을 찾지 못했고, 휴일이면 카운트
+              restDaysCount++;
+            } else if (!foundNight && shiftType === 'N') {
+              // 휴일 이후 N 발견
+              foundNight = true;
+            } else if (foundNight && shiftType !== 'N') {
+              // N 블록이 끝남
+              break;
+            }
+          }
+
+          // N 블록 직후 휴일이 2일 미만이면 nightRestDaysRemaining 설정
+          if (foundNight && restDaysCount > 0 && restDaysCount < 2) {
+            nightRestDaysRemaining[nurse.id] = 2 - restDaysCount;
+          }
+        }
+      }
+    }
+  }
+
   // 각 날짜별로 스케줄 생성
   dates.forEach((date, dateIndex) => {
     const dayOfWeek = new Date(date).getDay(); // 0 = 일요일
@@ -107,13 +185,6 @@ export function generateSimpleSchedule(
     const assignedNurses = new Set<string>();
     const todayShift: Record<string, ShiftType> = {}; // 오늘 배정된 근무 임시 저장
 
-    // 고정된 셀이 있는지 확인하는 함수
-    const isFixed = (nurseId: string, checkDate: string): boolean => {
-      return schedule.some(
-        (cell) => cell.nurseId === nurseId && cell.date === checkDate && cell.isFixed
-      );
-    };
-
     // 고정된 셀의 간호사 ID를 assignedNurses에 추가
     schedule
       .filter((cell) => cell.date === date && cell.isFixed)
@@ -121,28 +192,6 @@ export function generateSimpleSchedule(
         assignedNurses.add(cell.nurseId);
         todayShift[cell.nurseId] = cell.shiftType;
       });
-
-    // 연속 근무일 체크: 이미 5일 연속 근무한 간호사는 제외
-    // 토요일(6)에는 주간 OFF가 0인 간호사는 근무 불가
-    // 나이트 후 휴식일이 남아있는 간호사는 근무 불가
-    const canWork = (nurseId: string): boolean => {
-      // 고정된 셀이 있으면 할당 불가
-      if (isFixed(nurseId, date)) {
-        return false;
-      }
-      if (consecutiveWorkDays[nurseId] >= MAX_CONSECUTIVE_WORK_DAYS) {
-        return false;
-      }
-      // 토요일이면서 주간 OFF가 아직 0인 경우 근무 불가 (OFF 강제)
-      if (dayOfWeek === 6 && weeklyOffCount[nurseId] === 0) {
-        return false;
-      }
-      // 나이트 후 휴식일이 남아있으면 근무 불가
-      if (nightRestDaysRemaining[nurseId] > 0) {
-        return false;
-      }
-      return true;
-    };
 
     // 0. 주휴일 배정 (최우선)
     const todayDayOfWeek = getDayOfWeek(new Date(date));
@@ -160,12 +209,18 @@ export function generateSimpleSchedule(
       }
     }
 
-    // 0-1. 연차 배정 (고정)
-    // 연차 신청은 고정으로 배정되며, 이로 인해 필수 인원이 부족하면 validator에서 오류 발생
-    // 사용자가 연차 신청을 조정해야 함
+    // 0-1. 연차 배정 (승인된 연차만 고정)
+    // approvedAnnualLeaves가 제공되면 승인된 연차만 배정
+    // 제공되지 않으면 모든 연차를 배정 (이전 동작 유지)
     for (const nurse of nurses) {
       if (assignedNurses.has(nurse.id)) continue; // 이미 배정됨
-      if (nurse.annualLeaveDates && nurse.annualLeaveDates.includes(date)) {
+
+      // 승인된 연차 목록 확인
+      const approvedDates = approvedAnnualLeaves
+        ? (approvedAnnualLeaves[nurse.id] || [])
+        : (nurse.annualLeaveDates || []);
+
+      if (approvedDates.includes(date)) {
         schedule.push({
           nurseId: nurse.id,
           date,
@@ -313,10 +368,12 @@ export function generateSimpleSchedule(
 
     // 3-2. 부족한 만큼 새로운 나이트 시작 (1일차)
     // 단, 최소 2일이 남아있어야 나이트 시작 가능
-    // 예외: 마지막 날에 N이 부족하면 1일 나이트도 허용 (긴급 조치)
+    // 예외 1: 스케줄 초반(처음 2일)은 이전 스케줄과 연결될 수 있으므로 제한 없음
+    // 예외 2: 마지막 날에 N이 부족하면 1일 나이트도 허용 (긴급 조치)
     const daysRemaining = dates.length - dateIndex;
     const isLastDay = dateIndex === dates.length - 1;
-    const canStartNewNight = daysRemaining >= 2 || (isLastDay && nightCount < DAILY_REQUIRED_STAFF.N);
+    const isStartPeriod = dateIndex < 2; // 처음 2일은 이전 스케줄과 연결 가능
+    const canStartNewNight = daysRemaining >= 2 || isStartPeriod || (isLastDay && nightCount < DAILY_REQUIRED_STAFF.N);
 
     if (canStartNewNight) {
       for (const nurse of getAvailableNurses()) {
@@ -473,4 +530,49 @@ export function generateSimpleSchedule(
   });
 
   return schedule;
+}
+
+/**
+ * 이전 5일 스케줄 자동 생성
+ * 메인 스케줄의 시작일 기준으로 이전 5일 (startDate - 5일 ~ startDate - 1일)을 생성합니다.
+ * 모든 제약조건을 만족하도록 생성됩니다.
+ *
+ * @param nurses - 간호사 목록
+ * @param mainStartDate - 메인 스케줄의 시작일 (YYYY-MM-DD)
+ * @param randomize - true일 경우 매번 다른 스케줄 생성 (UI용), false일 경우 동일한 결과 (테스트용)
+ * @returns 이전 5일 스케줄 셀 배열
+ */
+export function generatePreviousSchedule(
+  nurses: Nurse[],
+  mainStartDate: string,
+  randomize: boolean = false
+): ScheduleCell[] {
+  if (nurses.length === 0) {
+    return [];
+  }
+
+  // 메인 스케줄 시작일에서 5일 전 계산
+  const mainStart = new Date(mainStartDate);
+  const previousStart = new Date(mainStart);
+  previousStart.setDate(mainStart.getDate() - 5);
+
+  // 메인 스케줄 시작일에서 1일 전 계산
+  const previousEnd = new Date(mainStart);
+  previousEnd.setDate(mainStart.getDate() - 1);
+
+  const previousStartStr = previousStart.toISOString().split('T')[0];
+  const previousEndStr = previousEnd.toISOString().split('T')[0];
+
+  // 이전 스케줄 정보 없이 5일 생성 (previousScheduleInfo = undefined)
+  // 고정 셀도 없음 (fixedCells = [])
+  // 연차도 없음 (approvedAnnualLeaves = {})
+  return generateSimpleSchedule(
+    nurses,
+    previousStartStr,
+    previousEndStr,
+    randomize,
+    [], // 고정 셀 없음
+    undefined, // 이전 스케줄 정보 없음
+    {} // 연차 없음 (이전 5일에는 연차 배정 안 함)
+  );
 }

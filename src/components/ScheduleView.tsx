@@ -3,7 +3,7 @@ import type { Nurse, ScheduleCell, ShiftType } from '../types';
 import { SHIFT_TYPE_LABELS, SHIFT_TYPE_SHORT_LABELS, DAY_OF_WEEK_LABELS } from '../types';
 import { SHIFT_COLORS, SHIFT_CYCLE } from '../constants';
 import { validateSchedule } from '../utils/validator';
-import { generateSimpleSchedule } from '../utils/scheduler';
+import { generateSimpleSchedule, generatePreviousSchedule } from '../utils/scheduler';
 import '../styles/ScheduleView.css';
 
 interface ScheduleViewProps {
@@ -53,6 +53,42 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
   // 스케줄 데이터
   const [schedule, setSchedule] = useState<ScheduleCell[]>([]);
 
+  // 이전 5일 스케줄 (간호사별)
+  const [previousSchedule, setPreviousSchedule] = useState<Record<string, ScheduleCell[]>>(() => {
+    // 초기값: 각 간호사별로 빈 5일 생성
+    const initial: Record<string, ScheduleCell[]> = {};
+    nurses.forEach(nurse => {
+      initial[nurse.id] = [];
+    });
+    return initial;
+  });
+
+  // 반려된 연차 목록
+  interface RejectedAnnualLeave {
+    nurseId: string;
+    nurseName: string;
+    date: string;
+    reason: string;
+  }
+  const [rejectedAnnualLeaves, setRejectedAnnualLeaves] = useState<RejectedAnnualLeave[]>([]);
+
+  // 이전 5일 날짜 배열 생성 (스케줄 시작일 기준 -5, -4, -3, -2, -1)
+  const previousDateList = useMemo(() => {
+    const dates: string[] = [];
+    const start = new Date(startDate);
+
+    for (let i = 5; i >= 1; i--) {
+      const prevDate = new Date(start);
+      prevDate.setDate(start.getDate() - i);
+      const year = prevDate.getFullYear();
+      const month = String(prevDate.getMonth() + 1).padStart(2, '0');
+      const day = String(prevDate.getDate()).padStart(2, '0');
+      dates.push(`${year}-${month}-${day}`);
+    }
+
+    return dates;
+  }, [startDate]);
+
   // 날짜 배열 생성
   const dateList = useMemo(() => {
     const dates: Date[] = [];
@@ -76,6 +112,13 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
     const cell = schedule.find(
       (s) => s.nurseId === nurseId && s.date === date
     );
+    return cell?.shiftType || 'OFF';
+  };
+
+  // 이전 스케줄의 특정 셀 근무 타입 가져오기
+  const getPreviousShiftType = (nurseId: string, date: string): ShiftType => {
+    const nursePrevSchedule = previousSchedule[nurseId] || [];
+    const cell = nursePrevSchedule.find((s) => s.date === date);
     return cell?.shiftType || 'OFF';
   };
 
@@ -137,11 +180,51 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
     }
   };
 
+  // 이전 스케줄 셀 클릭 핸들러 (근무 타입 순환, 항상 고정)
+  const handlePreviousCellClick = (nurseId: string, date: string) => {
+    const nursePrevSchedule = previousSchedule[nurseId] || [];
+    const existingCell = nursePrevSchedule.find((s) => s.date === date);
+
+    const currentType = getPreviousShiftType(nurseId, date);
+    const currentIndex = SHIFT_CYCLE.indexOf(currentType);
+    const nextIndex = (currentIndex + 1) % SHIFT_CYCLE.length;
+    const nextType = SHIFT_CYCLE[nextIndex];
+
+    if (existingCell) {
+      // 기존 셀 업데이트
+      setPreviousSchedule({
+        ...previousSchedule,
+        [nurseId]: nursePrevSchedule.map((s) =>
+          s.date === date ? { ...s, shiftType: nextType } : s
+        ),
+      });
+    } else {
+      // 새 셀 추가 (항상 고정)
+      setPreviousSchedule({
+        ...previousSchedule,
+        [nurseId]: [
+          ...nursePrevSchedule,
+          { nurseId, date, shiftType: nextType, isFixed: true },
+        ],
+      });
+    }
+  };
+
   // 날짜별 각 근무 타입 카운트
   const getDailyCount = (date: string, shiftType: ShiftType): number => {
     return schedule.filter(
       (s) => s.date === date && s.shiftType === shiftType
     ).length;
+  };
+
+  // 이전 스케줄의 날짜별 각 근무 타입 카운트
+  const getPreviousDailyCount = (date: string, shiftType: ShiftType): number => {
+    let count = 0;
+    for (const nurseId in previousSchedule) {
+      const nurseCells = previousSchedule[nurseId] || [];
+      count += nurseCells.filter(cell => cell.date === date && cell.shiftType === shiftType).length;
+    }
+    return count;
   };
 
   // 간호사별 각 근무 타입 카운트
@@ -168,13 +251,113 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
       return;
     }
 
-    // 기존 스케줄에서 고정된 셀 추출
-    const fixedCells = schedule.filter(cell => cell.isFixed);
+    // 1. 이전 5일 스케줄 생성 (제약조건 만족)
+    const generatedPreviousSchedule = generatePreviousSchedule(nurses, startDate, true);
 
-    // randomize=true, 고정 셀 전달하여 스케줄 생성
-    const generatedSchedule = generateSimpleSchedule(nurses, startDate, endDate, true, fixedCells);
+    // 2. 간호사별로 정리
+    const previousScheduleByNurse: Record<string, ScheduleCell[]> = {};
+    nurses.forEach(nurse => {
+      previousScheduleByNurse[nurse.id] = generatedPreviousSchedule.filter(cell => cell.nurseId === nurse.id);
+    });
 
-    setSchedule(generatedSchedule);
+    // 3. previousSchedule state 업데이트
+    setPreviousSchedule(previousScheduleByNurse);
+
+    // 4. 이전 5일 정보
+    const previousScheduleInfo = {
+      schedules: previousScheduleByNurse,
+    };
+
+    // 5. 기존 스케줄에서 고정된 셀 추출 (주휴일 등)
+    const fixedCells = schedule.filter(cell => cell.isFixed && cell.shiftType !== 'ANNUAL');
+
+    // 6. 연차 승인/반려 로직
+    const approvedAnnualLeaves: Record<string, string[]> = {};
+    const rejectedList: RejectedAnnualLeave[] = [];
+
+    // 모든 연차를 수집
+    interface AnnualLeaveRequest {
+      nurseId: string;
+      nurseName: string;
+      date: string;
+    }
+    const allAnnualLeaves: AnnualLeaveRequest[] = [];
+    nurses.forEach(nurse => {
+      if (nurse.annualLeaveDates && nurse.annualLeaveDates.length > 0) {
+        nurse.annualLeaveDates.forEach(date => {
+          allAnnualLeaves.push({ nurseId: nurse.id, nurseName: nurse.name, date });
+        });
+      }
+    });
+
+    // 각 연차를 하나씩 검증
+    for (const annual of allAnnualLeaves) {
+      // 임시로 이 연차를 승인 목록에 추가
+      const tempApproved: Record<string, string[]> = {};
+      for (const nurseId in approvedAnnualLeaves) {
+        tempApproved[nurseId] = [...approvedAnnualLeaves[nurseId]];
+      }
+      if (!tempApproved[annual.nurseId]) {
+        tempApproved[annual.nurseId] = [];
+      }
+      tempApproved[annual.nurseId].push(annual.date);
+
+      // 임시 스케줄 생성 (검증용)
+      const tempSchedule = generateSimpleSchedule(
+        nurses,
+        startDate,
+        endDate,
+        false, // 검증용이므로 randomize=false
+        fixedCells,
+        previousScheduleInfo,
+        tempApproved
+      );
+
+      // 제약조건 검증 (하드 제약만 체크)
+      const validation = validateSchedule(tempSchedule, nurses);
+      const hardViolations = validation.violations.filter(v => v.type === 'HARD');
+
+      if (hardViolations.length === 0) {
+        // 승인 (소프트 제약 위반은 허용)
+        if (!approvedAnnualLeaves[annual.nurseId]) {
+          approvedAnnualLeaves[annual.nurseId] = [];
+        }
+        approvedAnnualLeaves[annual.nurseId].push(annual.date);
+      } else {
+        // 반려 (하드 제약 위반 사유만 추출)
+        const relatedViolations = hardViolations.filter(
+          v => v.date === annual.date || v.nurseId === annual.nurseId
+        );
+        const reasons = relatedViolations.length > 0
+          ? relatedViolations.map(v => v.message).join(', ')
+          : '하드 제약조건 위반';
+
+        rejectedList.push({
+          nurseId: annual.nurseId,
+          nurseName: annual.nurseName,
+          date: annual.date,
+          reason: reasons,
+        });
+      }
+    }
+
+    // 7. 반려된 연차 목록 업데이트
+    setRejectedAnnualLeaves(rejectedList);
+
+    // 8. 최종 스케줄 생성 (승인된 연차만 포함)
+    const finalSchedule = generateSimpleSchedule(
+      nurses,
+      startDate,
+      endDate,
+      true, // UI용이므로 randomize=true
+      fixedCells,
+      previousScheduleInfo,
+      approvedAnnualLeaves
+    );
+
+    setSchedule(finalSchedule);
+
+    // 9. 반려된 연차는 UI에 자동으로 표시됨 (alert 제거)
   };
 
   // 요일 가져오기
@@ -268,11 +451,46 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
         </div>
       )}
 
+      {/* 반려된 연차 목록 */}
+      {rejectedAnnualLeaves.length > 0 && (
+        <div className="rejected-annual-section">
+          <h3>❌ 반려된 연차</h3>
+          <p className="section-description">
+            제약조건을 만족하지 못하여 반려된 연차 신청 목록입니다.
+          </p>
+          <ul className="rejected-annual-list">
+            {rejectedAnnualLeaves.map((rejected, index) => (
+              <li key={index} className="rejected-annual-item">
+                <strong>{rejected.nurseName}</strong> - {rejected.date}: {rejected.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="schedule-table-container">
         <table className="schedule-table">
           <thead>
             <tr>
               <th className="nurse-name-header">이름</th>
+              {/* 이전 4일 컬럼 */}
+              {previousDateList.map((dateStr, index) => {
+                const date = new Date(dateStr);
+                const dayOfWeek = getDayOfWeek(date);
+                const isWE = isWeekend(date);
+                const isWeekStart = date.getDay() === 0;
+                const isLastPreviousDay = index === previousDateList.length - 1;
+
+                return (
+                  <th key={`prev-${dateStr}`} className={`previous-header ${isWE ? 'weekend' : ''} ${isWeekStart ? 'week-start' : ''} ${isLastPreviousDay ? 'previous-divider' : ''}`}>
+                    <div className="date-cell">
+                      <div className="date-number">{date.getDate()}</div>
+                      <div className="date-day">{DAY_OF_WEEK_LABELS[dayOfWeek as keyof typeof DAY_OF_WEEK_LABELS]}</div>
+                    </div>
+                  </th>
+                );
+              })}
+              {/* 메인 스케줄 컬럼 */}
               {dateList.map((date) => {
                 const dateStr = date.toISOString().split('T')[0];
                 const dayOfWeek = getDayOfWeek(date);
@@ -292,6 +510,11 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
             </tr>
             <tr>
               <th></th>
+              {/* 이전 4일 라벨 */}
+              <th colSpan={previousDateList.length} className="previous-label">
+                이전 근무
+              </th>
+              {/* 메인 스케줄 빈 셀 */}
               {dateList.map((date) => {
                 const isWeekStart = date.getDay() === 0; // 일요일
                 return (
@@ -316,6 +539,26 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
               return (
                 <tr key={nurse.id}>
                   <td className="nurse-name">{nurse.name}</td>
+                  {/* 이전 4일 셀 */}
+                  {previousDateList.map((dateStr, index) => {
+                    const date = new Date(dateStr);
+                    const shiftType = getPreviousShiftType(nurse.id, dateStr);
+                    const isWeekStart = date.getDay() === 0;
+                    const isLastPreviousDay = index === previousDateList.length - 1;
+
+                    return (
+                      <td
+                        key={`prev-${dateStr}`}
+                        className={`shift-cell previous-cell ${isWeekStart ? 'week-start' : ''} ${isLastPreviousDay ? 'previous-divider' : ''}`}
+                        style={{ backgroundColor: SHIFT_COLORS[shiftType] }}
+                        onClick={() => handlePreviousCellClick(nurse.id, dateStr)}
+                        title={`이전 근무: ${SHIFT_TYPE_LABELS[shiftType]} (클릭하여 변경)`}
+                      >
+                        {SHIFT_TYPE_SHORT_LABELS[shiftType]}
+                      </td>
+                    );
+                  })}
+                  {/* 메인 스케줄 셀 */}
                   {dateList.map((date) => {
                     const dateStr = date.toISOString().split('T')[0];
                     const shiftType = getShiftType(nurse.id, dateStr);
@@ -364,6 +607,19 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
           <tfoot>
             <tr>
               <td className="footer-label">D</td>
+              {/* 이전 5일 카운트 */}
+              {previousDateList.map((dateStr, index) => {
+                const count = getPreviousDailyCount(dateStr, 'D');
+                const date = new Date(dateStr);
+                const isWeekStart = date.getDay() === 0;
+                const isLastPreviousDay = index === previousDateList.length - 1;
+                return (
+                  <td key={`prev-d-${dateStr}`} className={`previous-footer daily-count ${isWeekStart ? 'week-start' : ''} ${isLastPreviousDay ? 'previous-divider' : ''}`}>
+                    {count}
+                  </td>
+                );
+              })}
+              {/* 메인 스케줄 카운트 */}
               {dateList.map((date) => {
                 const dateStr = date.toISOString().split('T')[0];
                 const count = getDailyCount(dateStr, 'D');
@@ -379,6 +635,19 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
             </tr>
             <tr>
               <td className="footer-label">M</td>
+              {/* 이전 5일 카운트 */}
+              {previousDateList.map((dateStr, index) => {
+                const count = getPreviousDailyCount(dateStr, 'M');
+                const date = new Date(dateStr);
+                const isWeekStart = date.getDay() === 0;
+                const isLastPreviousDay = index === previousDateList.length - 1;
+                return (
+                  <td key={`prev-m-${dateStr}`} className={`previous-footer daily-count ${isWeekStart ? 'week-start' : ''} ${isLastPreviousDay ? 'previous-divider' : ''}`}>
+                    {count}
+                  </td>
+                );
+              })}
+              {/* 메인 스케줄 카운트 */}
               {dateList.map((date) => {
                 const dateStr = date.toISOString().split('T')[0];
                 const count = getDailyCount(dateStr, 'M');
@@ -394,6 +663,19 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
             </tr>
             <tr>
               <td className="footer-label">E</td>
+              {/* 이전 5일 카운트 */}
+              {previousDateList.map((dateStr, index) => {
+                const count = getPreviousDailyCount(dateStr, 'E');
+                const date = new Date(dateStr);
+                const isWeekStart = date.getDay() === 0;
+                const isLastPreviousDay = index === previousDateList.length - 1;
+                return (
+                  <td key={`prev-e-${dateStr}`} className={`previous-footer daily-count ${isWeekStart ? 'week-start' : ''} ${isLastPreviousDay ? 'previous-divider' : ''}`}>
+                    {count}
+                  </td>
+                );
+              })}
+              {/* 메인 스케줄 카운트 */}
               {dateList.map((date) => {
                 const dateStr = date.toISOString().split('T')[0];
                 const count = getDailyCount(dateStr, 'E');
@@ -409,6 +691,19 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
             </tr>
             <tr>
               <td className="footer-label">N</td>
+              {/* 이전 5일 카운트 */}
+              {previousDateList.map((dateStr, index) => {
+                const count = getPreviousDailyCount(dateStr, 'N');
+                const date = new Date(dateStr);
+                const isWeekStart = date.getDay() === 0;
+                const isLastPreviousDay = index === previousDateList.length - 1;
+                return (
+                  <td key={`prev-n-${dateStr}`} className={`previous-footer daily-count ${isWeekStart ? 'week-start' : ''} ${isLastPreviousDay ? 'previous-divider' : ''}`}>
+                    {count}
+                  </td>
+                );
+              })}
+              {/* 메인 스케줄 카운트 */}
               {dateList.map((date) => {
                 const dateStr = date.toISOString().split('T')[0];
                 const count = getDailyCount(dateStr, 'N');

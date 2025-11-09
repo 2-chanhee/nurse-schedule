@@ -44,6 +44,13 @@ export interface ValidationResult {
   violations: Violation[];
 }
 
+// 이전 스케줄 정보 (최근 4일)
+// 스케줄 생성 시 연속성을 보장하기 위해 사용
+export interface PreviousScheduleInfo {
+  // 간호사별 이전 4일 스케줄 (날짜: -4, -3, -2, -1)
+  schedules: Record<string, ScheduleCell[]>; // nurseId -> 최근 4일 셀
+}
+
 // 근무 타입 한글명 매핑
 export const SHIFT_TYPE_LABELS: Record<ShiftType, string> = {
   D: '데이',

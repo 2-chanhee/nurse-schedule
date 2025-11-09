@@ -781,6 +781,87 @@ src/
   - 주간 OFF 확보 로직 개선 필요 (금요일부터 우선 배정 등)
   - 연차 있을 때도 안정적으로 동작하도록 알고리즘 강화
 
+#### 22. 이전 5일 근무 UI 통합 (2025-11-09)
+- **요구사항**: 스케줄의 연속성을 위해 이전 5일 근무 정보를 관리
+- **핵심 요구사항**:
+  - 이전 5일 UI를 별도 섹션이 아닌 메인 스케줄 테이블 앞에 통합
+  - 굵은 세로 구분선으로 "이전 근무"임을 명확히 표시
+  - 재생성 시 이전 5일도 제약조건에 맞게 자동 생성
+  - 이전 5일 + 메인 스케줄 모두 제약조건 만족해야 함
+  - 사용자가 클릭하여 수동 편집 가능
+  - 푸터에 이전 5일 각 날짜별 D, M, E, N 카운트 표시
+- **구현 내용**:
+  1. **타입 정의** (src/types.ts):
+     - PreviousScheduleInfo 인터페이스 추가
+     - schedules: Record<string, ScheduleCell[]> (간호사별 이전 5일)
+  2. **UI 통합** (src/components/ScheduleView.tsx):
+     - 메인 스케줄 테이블의 날짜 컬럼 앞에 이전 5일 컬럼 추가
+     - 세로 구분선 (border-right: 4px solid) 으로 구분
+     - "이전 근무" 라벨 표시
+     - handlePreviousCellClick으로 클릭 이벤트 처리
+     - getPreviousDailyCount 함수로 이전 5일 각 날짜별 카운트 계산
+     - 푸터에 이전 5일 카운트 표시 (메인 스케줄과 동일한 형식)
+  3. **자동 생성 로직** (src/utils/scheduler.ts):
+     - generatePreviousSchedule 함수: 이전 5일 생성 (startDate - 5일 ~ startDate - 1일)
+     - 이전 5일도 모든 제약조건 만족하도록 생성
+     - previousScheduleInfo 파라미터로 전달하여 메인 스케줄에 반영
+     - 초기 상태 설정: lastShift, consecutiveWorkDays, nightBlockStatus, nightRestDaysRemaining
+  4. **스타일링** (src/styles/ScheduleView.css):
+     - .previous-cell: opacity 0.8로 메인 스케줄과 시각적 구분
+     - .previous-divider: 굵은 세로 구분선 (4px solid #000000)
+     - .previous-footer: 푸터 배경색
+- **효과**:
+  - 이전 스케줄과의 연속성 보장
+  - 제약조건 검증 정확도 향상 (연속 근무일, 근무 순서 등)
+  - 사용자가 이전 근무 정보 직관적으로 확인 가능
+  - 푸터 카운트로 이전 5일 근무 분포도 한눈에 파악 가능
+- **교훈**:
+  - 스케줄 경계 조건 처리 시 이전 정보 필수
+  - UI 통합 시 시각적 구분 명확히 해야 혼란 방지
+  - 카운트 표시로 정보 가독성 대폭 향상
+
+#### 23. 연차 승인/반려 시스템 (2025-11-09)
+- **요구사항**: 연차 신청 → 스케줄 생성 → 제약조건 검증 → 승인/반려
+- **기존 방식의 문제**:
+  - 연차를 무조건 고정으로 배정 → 제약조건 위반 발생 가능
+  - 예: 연차로 인해 일일 필수 인원 부족
+- **새로운 방식**:
+  1. **1단계: 연차 신청**
+     - 간호사 관리 페이지에서 날짜 선택
+     - 주휴일 겹침만 즉시 검증
+  2. **2단계: 스케줄 생성**
+     - 신청한 연차를 포함하여 스케줄 생성 시도
+     - 모든 제약조건 검증 (일일 필수 인원, 근무 순서 등)
+  3. **3단계: 승인/반려**
+     - **제약조건 만족**: 연차 승인 → "연차OFF"로 표시
+     - **제약조건 위반**: 연차 반려 → 해당 연차 스케줄에 미반영
+     - 반려된 연차 목록 표시 (어떤 연차가 왜 반려되었는지)
+- **구현 계획**:
+  1. **scheduler.ts 수정**:
+     - generateScheduleWithAnnualValidation 함수 추가
+     - 각 연차 날짜별로 스케줄 생성 시도
+     - 위반 발생 시 해당 연차 제거하고 재시도
+     - 승인/반려 결과 반환
+  2. **ScheduleView.tsx 수정**:
+     - 자동 생성 시 연차 검증 로직 호출
+     - 반려된 연차 목록 상태 관리
+     - 반려된 연차 UI 표시 (경고 메시지)
+  3. **types.ts 수정**:
+     - AnnualLeaveValidationResult 타입 추가
+     - approved: string[], rejected: { date: string, reason: string }[]
+- **테스트 작성**:
+  - 연차가 제약조건을 만족하는 경우: 승인
+  - 연차로 인해 필수 인원 부족: 반려
+  - 여러 연차 중 일부만 승인되는 경우
+- **효과**:
+  - 연차 신청과 스케줄 제약조건의 균형 달성
+  - 사용자에게 왜 연차가 반려되었는지 명확한 피드백
+  - 불가능한 스케줄 생성 방지
+- **교훈**:
+  - 고정 셀이 많을수록 스케줄 생성 난이도 기하급수적 증가
+  - 제약조건 검증과 사용자 입력의 밸런스 필요
+  - 피드백은 구체적이고 행동 가능해야 함
+
 ### When Starting a New Session
 1. Read `SPEC.md` to understand project requirements and current implementation status
 2. Read `CLAUDE.md` (this file) to understand working style
