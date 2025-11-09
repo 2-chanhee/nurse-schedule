@@ -111,6 +111,32 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
     }
   };
 
+  // 우클릭 핸들러 (고정/해제 토글)
+  const handleRightClick = (e: React.MouseEvent, nurseId: string, date: string) => {
+    e.preventDefault(); // 브라우저 기본 컨텍스트 메뉴 방지
+
+    const existingCell = schedule.find(
+      (s) => s.nurseId === nurseId && s.date === date
+    );
+
+    if (existingCell) {
+      // 셀이 있으면 고정 토글
+      setSchedule(
+        schedule.map((s) =>
+          s.nurseId === nurseId && s.date === date
+            ? { ...s, isFixed: !s.isFixed }
+            : s
+        )
+      );
+    } else {
+      // 셀이 없으면 OFF로 생성하고 고정
+      setSchedule([
+        ...schedule,
+        { nurseId, date, shiftType: 'OFF', isFixed: true },
+      ]);
+    }
+  };
+
   // 날짜별 각 근무 타입 카운트
   const getDailyCount = (date: string, shiftType: ShiftType): number => {
     return schedule.filter(
@@ -142,8 +168,12 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
       return;
     }
 
-    // randomize=true로 매번 다른 스케줄 생성
-    const generatedSchedule = generateSimpleSchedule(nurses, startDate, endDate, true);
+    // 기존 스케줄에서 고정된 셀 추출
+    const fixedCells = schedule.filter(cell => cell.isFixed);
+
+    // randomize=true, 고정 셀 전달하여 스케줄 생성
+    const generatedSchedule = generateSimpleSchedule(nurses, startDate, endDate, true, fixedCells);
+
     setSchedule(generatedSchedule);
   };
 
@@ -198,6 +228,45 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
           </button>
         </div>
       </div>
+
+      {/* 제약 위반 사항 표시 */}
+      {schedule.length > 0 && (
+        <div className="violations-container">
+          <div className="violations-section hard-violations">
+            <h3>🔴 하드 제약 위반</h3>
+            {validationResult.violations.filter(v => v.type === 'HARD').length === 0 ? (
+              <div className="no-violations">위반 사항 없음</div>
+            ) : (
+              <ul className="violations-list">
+                {validationResult.violations
+                  .filter(v => v.type === 'HARD')
+                  .map((violation, index) => (
+                    <li key={index} className="violation-item">
+                      {violation.message}
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="violations-section soft-violations">
+            <h3>🟡 소프트 제약 위반</h3>
+            {validationResult.violations.filter(v => v.type === 'SOFT').length === 0 ? (
+              <div className="no-violations">위반 사항 없음</div>
+            ) : (
+              <ul className="violations-list">
+                {validationResult.violations
+                  .filter(v => v.type === 'SOFT')
+                  .map((violation, index) => (
+                    <li key={index} className="violation-item">
+                      {violation.message}
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="schedule-table-container">
         <table className="schedule-table">
@@ -269,12 +338,13 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
                         className={`shift-cell ${hasViolation ? 'violation' : ''} ${isFixed ? 'fixed' : ''} ${isWeekStart ? 'week-start' : ''}`}
                         style={{ backgroundColor: SHIFT_COLORS[shiftType] }}
                         onClick={() => handleCellClick(nurse.id, dateStr)}
+                        onContextMenu={(e) => handleRightClick(e, nurse.id, dateStr)}
                         title={
                           hasViolation
                             ? nurseViolations.find((v) => v.date === dateStr)?.message
                             : isFixed
-                            ? `${SHIFT_TYPE_LABELS[shiftType]} (고정)`
-                            : SHIFT_TYPE_LABELS[shiftType]
+                            ? `${SHIFT_TYPE_LABELS[shiftType]} (고정 - 우클릭으로 해제)`
+                            : `${SHIFT_TYPE_LABELS[shiftType]} (우클릭으로 고정)`
                         }
                       >
                         {SHIFT_TYPE_SHORT_LABELS[shiftType]}

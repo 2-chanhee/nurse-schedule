@@ -1,4 +1,4 @@
-import type { ScheduleCell, ShiftType, Violation } from '../types';
+import type { ScheduleCell, ShiftType, Violation, Nurse, DayOfWeek } from '../types';
 import { DAILY_REQUIRED_STAFF, SHIFT_ORDER, MAX_CONSECUTIVE_WORK_DAYS } from '../constants';
 
 /**
@@ -156,8 +156,6 @@ export function validateWeeklyRest(
     if (weekCells.length < 7) {
       return; // 이 주는 건너뜀
     }
-
-    const restTypes: ShiftType[] = ['OFF', 'WEEK_OFF', 'ANNUAL', 'MENSTRUAL'];
 
     // 휴일별 카운트
     let weekOffCount = 0;
@@ -336,8 +334,15 @@ export function validateNightRestDays(
           }
         }
 
-        // 2일 연속 휴식이 아닌 경우 위반
-        if (restDaysAfterNight < 2) {
+        // 마지막 2일 이내에 나이트 종료 시 검증 제외
+        // (다음 4주 스케줄로 이어질 수 있으므로 현재 스케줄만으로는 판단 불가)
+        const uniqueDates = Array.from(new Set(schedule.map((s) => s.date))).sort();
+        const lastDate = uniqueDates.length > 0 ? uniqueDates[uniqueDates.length - 1] : '';
+        const secondLastDate = uniqueDates.length > 1 ? uniqueDates[uniqueDates.length - 2] : '';
+        const isLastTwoDays = nightEndDate === lastDate || nightEndDate === secondLastDate;
+
+        // 2일 연속 휴식이 아닌 경우 위반 (단, 마지막 2일 이내 종료는 예외)
+        if (restDaysAfterNight < 2 && !isLastTwoDays) {
           violations.push({
             type: 'HARD',
             nurseId,
@@ -445,7 +450,6 @@ export function validateConsecutiveWorkDays(
   const restTypes: ShiftType[] = ['OFF', 'WEEK_OFF', 'ANNUAL', 'MENSTRUAL'];
 
   let consecutiveWorkDays = 0;
-  let workStartDate = '';
 
   for (let i = 0; i < nurseCells.length; i++) {
     const cell = nurseCells[i];
@@ -454,12 +458,8 @@ export function validateConsecutiveWorkDays(
     // 휴일이면 연속 근무 리셋
     if (restTypes.includes(shiftType)) {
       consecutiveWorkDays = 0;
-      workStartDate = '';
     } else {
       // 근무일이면 카운트 증가
-      if (consecutiveWorkDays === 0) {
-        workStartDate = cell.date;
-      }
       consecutiveWorkDays++;
 
       // 6일 이상 연속 근무 시 위반
@@ -525,7 +525,7 @@ export function validateAnnualWeekOffConflict(nurse: Nurse): Violation[] {
  */
 export function validateSchedule(
   schedule: ScheduleCell[],
-  nurses: { id: string; name: string }[]
+  nurses: Nurse[]
 ): {
   violations: Violation[];
   dailyStaffStatus: Record<string, Record<ShiftType, 'ok' | 'warning' | 'error'>>;
@@ -629,6 +629,20 @@ export function validateSchedule(
     const annualWeekOffConflict = validateAnnualWeekOffConflict(nurse);
     violations.push(...annualWeekOffConflict);
   });
+
+  // 🚧 미구현 - 비권장 패턴 검증 (SOFT)
+  // nurses.forEach((nurse) => {
+  //   const discouragedPatternViolations = validateDiscouragedPattern(nurse.id, nurse.name, schedule);
+  //   violations.push(...discouragedPatternViolations);
+  // });
+
+  // 🚧 미구현 - 휴일 공평 분배 검증 (SOFT → HARD)
+  // const offDayBalanceViolations = validateOffDayBalance(schedule, nurses);
+  // violations.push(...offDayBalanceViolations);
+
+  // 🚧 미구현 - 나이트 근무 공평 분배 검증 (SOFT)
+  // const nightBalanceViolations = validateNightBalance(schedule, nurses);
+  // violations.push(...nightBalanceViolations);
 
   return { violations, dailyStaffStatus };
 }

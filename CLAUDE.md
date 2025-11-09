@@ -54,7 +54,7 @@ npm run test:verbose      # Run tests with detailed output (recommended)
    ```bash
    npm run test:verbose
    ```
-   - **All 56 tests must pass** before considering the task complete
+   - **All tests must pass** before considering the task complete
    - AND 조건 통합 테스트 통과 필수
    - violations.length === 0 확인
    - If any test fails:
@@ -63,12 +63,20 @@ npm run test:verbose      # Run tests with detailed output (recommended)
      3. Run `npm run test:verbose` again
      4. Repeat until all tests pass
 
-4. **문서 업데이트**
+4. **프로젝트 빌드 확인** (MANDATORY - 무조건 실행)
+   ```bash
+   npm run build
+   ```
+   - **빌드 성공 필수** (TypeScript 컴파일 + Vite 빌드)
+   - 빌드 실패 시 오류 수정 후 재실행
+   - 테스트 통과 + 빌드 성공 = 작업 완료
+
+5. **문서 업데이트**
    - SPEC.md에 구현 내용 반영
    - CLAUDE.md에 중요한 기술 내용 추가
 
 **⚠️ 이 과정은 자동으로 수행됩니다. 사용자가 요청하지 않아도 Claude가 스스로 테스트를 작성하고 검증합니다.**
-**⚠️ 테스트 통과 없이는 절대 작업 완료로 간주하지 않습니다.**
+**⚠️ 테스트 통과 + 빌드 성공 없이는 절대 작업 완료로 간주하지 않습니다.**
 
 ## TypeScript Configuration
 
@@ -159,10 +167,15 @@ This is a nurse scheduling application that automatically generates 4-week sched
    - **특히 AND 조건 통합 테스트 통과 필수**
    - violations.length === 0 확인
    - 실패 시 코드 수정 후 5번부터 재실행
-7. **문서화**: SPEC.md 업데이트
-8. **사용자 피드백**: 테스트 방법 제시하고 확인 요청
+7. **프로젝트 빌드 확인** ⭐ (MANDATORY - 무조건 실행)
+   - `npm run build` 실행
+   - **빌드 성공 필수** (TypeScript 컴파일 + Vite 빌드)
+   - 실패 시 오류 수정 후 재실행
+8. **문서화**: SPEC.md 및 CLAUDE.md 업데이트
+9. **사용자 피드백**: 테스트 및 빌드 결과 보고
 
-**⚠️ 4-6번 과정은 자동으로 반복됩니다. 사용자가 "테스트해봐"라고 요청하기 전에 Claude가 먼저 수행합니다.**
+**⚠️ 4-7번 과정은 자동으로 반복됩니다. 사용자가 "테스트해봐"라고 요청하기 전에 Claude가 먼저 수행합니다.**
+**⚠️ 테스트 통과 + 빌드 성공 = 작업 완료**
 
 ### 중간 진행 보고 (Work Progress Communication)
 
@@ -295,10 +308,14 @@ npm run test:ui       # UI 모드 (브라우저)
 - [ ] scheduler.test.ts의 AND 조건 통합 테스트 통과 확인
 - [ ] `npm run test:verbose` 실행하여 모든 테스트 통과 (violations.length === 0)
 
+**빌드 단계 (필수):**
+- [ ] `npm run build` 실행하여 빌드 성공 확인 (TypeScript 컴파일 + Vite 빌드)
+
 **문서화:**
 - [ ] SPEC.md 업데이트 (✅ 완료 표시)
+- [ ] CLAUDE.md 업데이트 (중요한 버그 수정이나 기술 내용)
 
-**⚠️ 테스트 단계는 사용자가 요청하지 않아도 Claude가 자동으로 수행합니다.**
+**⚠️ 테스트 + 빌드 단계는 사용자가 요청하지 않아도 Claude가 자동으로 수행합니다.**
 
 ### Coding Standards
 - **주석**: 모든 주석은 한국어로 작성
@@ -637,6 +654,132 @@ src/
 - **교훈**:
   - UI 검증은 즉시 피드백을 주어야 사용자 경험 향상
   - 기본 세팅 시 제약 조건을 자동으로 만족하도록 설계
+
+#### 19. 우클릭 고정 셀 재생성 시 필수 인원 초과 버그 (2025-11-09)
+- **증상**: 스케줄 탭에서 셀을 우클릭으로 고정하고 재생성하면 필수 인원이 초과 배정됨
+- **원인 2가지**:
+  1. **근무 타입별 카운트 초기화 오류**
+     - 고정 셀에서 이미 배정된 근무를 카운트하지 않고 항상 0부터 시작
+     - 예: D 필수 3명, 이미 2명 고정 → dayCount=0 → 3명 추가 배정 → 총 5명 초과
+  2. **주휴일/연차 중복 배정 오류**
+     - 이미 고정 셀이 있는 간호사에게 주휴일/연차 중복 배정
+     - todayShift 덮어쓰기로 카운트 오류 발생
+     - 예: 간호사0 D 고정 → WEEK_OFF 추가 배정 → todayShift 덮어씀 → dayCount=1로 잘못 카운트 → D 2명 추가 → 총 4명 초과
+- **해결**:
+  1. **scheduler.ts 근무 타입별 카운트 초기화** (4곳 수정)
+     - D 배정 전: `let dayCount = Object.values(todayShift).filter(shift => shift === 'D').length;` (line 178)
+     - M 배정 전: `let middleCount = Object.values(todayShift).filter(shift => shift === 'M').length;` (line 204)
+     - N 배정 전: `let nightCount = Object.values(todayShift).filter(shift => shift === 'N').length;` (line 234)
+     - E 배정 전: `let eveningCount = Object.values(todayShift).filter(shift => shift === 'E').length;` (line 331)
+  2. **scheduler.ts 중복 배정 방지** (2곳 수정)
+     - 주휴일 배정: `!assignedNurses.has(nurse.id)` 조건 추가 (line 151)
+     - 연차 배정: `!assignedNurses.has(nurse.id)` 조건 추가 (line 166)
+  3. **scheduler.test.ts 타입 import 추가**
+     - ScheduleCell 타입 import 추가 (line 4)
+  4. **scheduler.test.ts 새 테스트 추가**
+     - "고정 셀이 있을 때 필수 인원을 초과하지 않음" 테스트 (line 328-350)
+  5. **scheduler.test.ts 기존 테스트 수정**
+     - "여러 간호사가 같은 날 연차 신청 가능" 테스트 날짜 변경
+     - 2024-01-10 (수요일, 간호사4 주휴일 충돌) → 2024-01-05 (금요일, 충돌 없음)
+     - 이유: 주휴일과 연차가 겹치면 주휴일 우선 규칙 적용
+- **비즈니스 로직 확인**: 주휴일과 연차가 겹치는 경우 주휴일이 우선 배정 (SPEC.md 명시)
+- **테스트 결과**:
+  - ✅ 전체 64개 테스트 통과 (63개 기존 + 1개 신규)
+  - ✅ 500회 반복 테스트 통과
+  - ✅ 빌드 성공
+- **교훈**:
+  - 고정 셀(fixedCells) 기능 구현 시 기존 할당 로직의 모든 카운트 초기화를 검토해야 함
+  - todayShift는 하루의 모든 배정을 정확히 반영해야 카운트 로직이 정상 작동
+  - 중복 배정 방지를 위해 assignedNurses Set을 활용한 체크 필수
+  - 테스트 작성 시 주휴일/연차와 같은 자동 배정 로직과의 충돌 고려 필요
+
+#### 20. 제약 위반 사항 UI 표시 추가 (2025-11-09)
+- **요구사항**: 스케줄에서 어떤 제약이 위반되었는지 바로 확인 가능하도록 UI 추가
+- **구현**:
+  - **위치**: 스케줄 헤더와 테이블 사이에 위반 사항 표시 영역 추가
+  - **레이아웃**: 2단 구조
+    - 왼쪽: 🔴 하드 제약 위반 (빨간색)
+    - 오른쪽: 🟡 소프트 제약 위반 (노란색)
+  - **스타일링**:
+    - 하드 제약: 연한 빨간색 배경 (#fee2e2), 왼쪽 빨간 테두리
+    - 소프트 제약: 연한 노란색 배경 (#fef3c7), 왼쪽 주황 테두리
+    - 위반 없음: 초록색 배경 (#d1fae5), "위반 사항 없음" 표시
+    - 스크롤: 최대 높이 200px, 커스텀 스크롤바
+  - **조건부 렌더링**: `schedule.length > 0`일 때만 표시
+- **코드 위치**:
+  - UI: src/components/ScheduleView.tsx:232-269
+  - CSS: src/styles/ScheduleView.css:282-365
+- **미구현 제약 조건 주석 처리**:
+  - validator.ts에 미구현 검증 함수 주석 추가 (line 626-638)
+  - 비권장 패턴 검증 (SOFT)
+  - 휴일 공평 분배 검증 (SOFT → HARD)
+  - 나이트 근무 공평 분배 검증 (SOFT)
+  - 구현 시 주석 해제하면 자동으로 위반 내역에 표시됨
+- **테스트 결과**:
+  - ✅ 전체 64개 테스트 통과
+  - ✅ 빌드 성공
+- **효과**:
+  - 어떤 제약이 위반되었는지 한눈에 확인 가능
+  - 하드/소프트 위반 명확히 구분
+  - 스크롤로 많은 위반 항목도 깔끔하게 표시
+- **교훈**:
+  - UI에 정보를 표시할 때는 사용자가 즉시 행동할 수 있도록 명확한 분류 필요
+  - 미구현 기능은 주석으로 표시해두면 나중에 구현 시 편리함
+
+#### 21. 🔴 중요: UI와 테스트 일치 문제 발견 및 수정 (2025-01-XX)
+- **문제 발견**: 테스트는 통과하지만 UI에서 제약 위반이 빈번하게 발생
+- **근본 원인 분석**:
+  1. **randomize 파라미터 불일치**:
+     - 테스트: `randomize=false` (ID 순서, 안정적)
+     - UI: `randomize=true` (랜덤 정렬, 실제 사용)
+     - **결과**: 테스트가 UI 동작을 반영하지 못함
+  2. **연차 데이터 불일치**:
+     - 테스트: `annualLeaveDates: []` (연차 없음)
+     - UI: 랜덤 3명에게 연차 배정
+     - **결과**: 고정 셀이 많아지면 스케줄 생성 난이도 급상승
+  3. **AND 조건 테스트 부족**:
+     - 모든 하드 제약을 동시에 만족하는지 검증 필요
+     - randomize=false로만 테스트하면 특정 순서에서만 동작 확인
+- **수정 사항**:
+  1. **테스트 수정** (src/utils/scheduler.test.ts:16-69, 357, 392):
+     - `createTestNurses`에 `withAnnual` 파라미터 추가
+     - 기본값 `withAnnual=true`로 UI와 동일하게 랜덤 3명에게 연차 배정
+     - 연차 관련 수동 테스트는 `withAnnual=false` 사용
+     - AND 조건 테스트에 `randomize=true` 명시
+  2. **강제 OFF 배정 로직 추가** (src/utils/scheduler.ts:178-199):
+     - 근무 배정 **전에** 제약 조건 체크하여 OFF 강제 배정
+     - 조건: 5일 연속 근무 / 나이트 후 휴식 / 토요일 주간 OFF 0
+     - 단, 나이트 진행 중이면 제외 (나이트 블록 유지)
+  3. **나이트 시작 조건 강화** (src/utils/scheduler.ts:322-324):
+     - 연속 근무일 2일 이하만 나이트 시작 가능
+     - 이유: 나이트 최대 3일 + 연속 2일 = 총 5일 제한 준수
+  4. **마지막 2일 나이트 처리** (src/utils/scheduler.ts:284-286, validator.ts:337-345):
+     - 스케줄러: 마지막 2일 이내에는 나이트 종료 금지 (다음 4주로 연결)
+     - Validator: 마지막 2일 이내 나이트 종료는 검증 제외
+- **테스트 결과** (randomize=false, 연차 없음):
+  - ✅ 64개 테스트 모두 통과
+  - ✅ 500회 반복 테스트: 499/500 성공 (99.8% 성공률)
+  - ❌ 1회 실패: 주간 OFF 부족 (나이트+토요일 조건 충돌)
+- **테스트 결과** (randomize=true, 연차 3명 - UI와 동일):
+  - ❌ 64개 중 4개 실패 (주간 OFF 부족 문제)
+  - ❌ 연차가 많으면 OFF 배정 기회 부족
+- **현재 상태**:
+  - 연차 없음: 99.8% 성공
+  - 연차 3명(UI): 약 50% 성공 (재생성 버튼 필요)
+- **코드 위치**:
+  - 테스트 수정: src/utils/scheduler.test.ts:16-69, 255, 290, 301, 357, 392
+  - 강제 OFF: src/utils/scheduler.ts:178-199
+  - 나이트 조건: src/utils/scheduler.ts:322-324, 284-286
+  - Validator: src/utils/validator.ts:337-345
+- **교훈**:
+  - **🔴 테스트는 UI와 정확히 동일한 조건으로 실행해야 함**
+  - randomize 파라미터 하나 차이가 전혀 다른 동작을 만듦
+  - 고정 셀(연차, 주휴일)이 많을수록 스케줄 생성 난이도 기하급수적 증가
+  - AND 조건 (모든 제약 동시 만족)은 단일 제약보다 훨씬 어려움
+  - 그리디 알고리즘의 한계: 할당 순서와 조건이 결과에 큰 영향
+- **TODO**:
+  - 주간 OFF 확보 로직 개선 필요 (금요일부터 우선 배정 등)
+  - 연차 있을 때도 안정적으로 동작하도록 알고리즘 강화
 
 ### When Starting a New Session
 1. Read `SPEC.md` to understand project requirements and current implementation status

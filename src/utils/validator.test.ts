@@ -11,18 +11,6 @@ import {
 } from './validator';
 import type { ScheduleCell, Nurse } from '../types';
 
-// 테스트 기본 세팅 (scheduler.test.ts와 동일)
-const DEFAULT_NURSE_COUNT = 15;  // 기본 간호사 수
-const DEFAULT_START_DATE = '2024-01-01';  // 기본 시작일 (월요일)
-const DEFAULT_END_DATE = '2024-01-28';  // 기본 종료일 (4주)
-
-// 테스트용 간호사 데이터 (단위 테스트용 - 최소 3명)
-const testNurses: Nurse[] = [
-  { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
-  { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
-  { id: 'nurse-3', name: '간호사3', weekOffDay: 'TUE', annualLeaveDates: [] },
-];
-
 describe('validator.ts - validateDailyStaffRequirement', () => {
   it('필수 인원 충족 시 위반 없음', () => {
     const schedule: ScheduleCell[] = [
@@ -271,16 +259,16 @@ describe('validator.ts - validateSchedule', () => {
       { nurseId: 'n7', date: '2024-01-02', shiftType: 'E', isFixed: false },
     ];
 
-    const nurses = [
-      { id: 'n1', name: '간호사1' },
-      { id: 'n2', name: '간호사2' },
-      { id: 'n3', name: '간호사3' },
-      { id: 'n4', name: '간호사4' },
-      { id: 'n5', name: '간호사5' },
-      { id: 'n6', name: '간호사6' },
-      { id: 'n7', name: '간호사7' },
-      { id: 'n8', name: '간호사8' },
-      { id: 'n9', name: '간호사9' },
+    const nurses: Nurse[] = [
+      { id: 'n1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
+      { id: 'n2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
+      { id: 'n3', name: '간호사3', weekOffDay: 'TUE', annualLeaveDates: [] },
+      { id: 'n4', name: '간호사4', weekOffDay: 'WED', annualLeaveDates: [] },
+      { id: 'n5', name: '간호사5', weekOffDay: 'THU', annualLeaveDates: [] },
+      { id: 'n6', name: '간호사6', weekOffDay: 'FRI', annualLeaveDates: [] },
+      { id: 'n7', name: '간호사7', weekOffDay: 'SAT', annualLeaveDates: [] },
+      { id: 'n8', name: '간호사8', weekOffDay: 'SUN', annualLeaveDates: [] },
+      { id: 'n9', name: '간호사9', weekOffDay: 'MON', annualLeaveDates: [] },
     ];
 
     const { violations, dailyStaffStatus } = validateSchedule(schedule, nurses);
@@ -302,10 +290,10 @@ describe('validator.ts - validateSchedule', () => {
       { nurseId: 'n1', date: '2024-01-03', shiftType: 'D', isFixed: false },
     ];
 
-    const nurses = [
-      { id: 'n1', name: '간호사1' },
-      { id: 'n2', name: '간호사2' },
-      { id: 'n3', name: '간호사3' },
+    const nurses: Nurse[] = [
+      { id: 'n1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
+      { id: 'n2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
+      { id: 'n3', name: '간호사3', weekOffDay: 'TUE', annualLeaveDates: [] },
     ];
 
     const { violations, dailyStaffStatus } = validateSchedule(schedule, nurses);
@@ -349,9 +337,11 @@ describe('validator.ts - validateSchedule', () => {
       { nurseId: 'n8', date: '2024-01-02', shiftType: 'E', isFixed: false },
     ];
 
-    const nurses = Array.from({ length: 10 }, (_, i) => ({
+    const nurses: Nurse[] = Array.from({ length: 10 }, (_, i) => ({
       id: `n${i + 1}`,
       name: `간호사${i + 1}`,
+      weekOffDay: (['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const)[i % 7],
+      annualLeaveDates: [],
     }));
 
     const { violations, dailyStaffStatus } = validateSchedule(schedule, nurses);
@@ -666,6 +656,8 @@ describe('validator.ts - validateNightRestDays', () => {
       { nurseId: 'nurse-1', date: '2024-01-01', shiftType: 'N', isFixed: false }, // 나이트 1일차
       { nurseId: 'nurse-1', date: '2024-01-02', shiftType: 'N', isFixed: false }, // 나이트 2일차
       { nurseId: 'nurse-1', date: '2024-01-03', shiftType: 'D', isFixed: false }, // 바로 근무 -> 위반
+      { nurseId: 'nurse-1', date: '2024-01-04', shiftType: 'D', isFixed: false }, // 추가 날짜 (마지막 2일 제외 방지)
+      { nurseId: 'nurse-1', date: '2024-01-05', shiftType: 'D', isFixed: false }, // 추가 날짜
     ];
 
     const violations = validateNightRestDays('nurse-1', '간호사1', schedule);
