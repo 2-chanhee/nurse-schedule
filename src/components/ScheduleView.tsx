@@ -72,6 +72,15 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
   }
   const [rejectedAnnualLeaves, setRejectedAnnualLeaves] = useState<RejectedAnnualLeave[]>([]);
 
+  // 로딩 상태
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState({
+    current: 0,
+    total: 0,
+    bestApproved: 0,
+    totalAnnual: 0,
+  });
+
   // 이전 5일 날짜 배열 생성 (스케줄 시작일 기준 -5, -4, -3, -2, -1)
   const previousDateList = useMemo(() => {
     const dates: string[] = [];
@@ -237,7 +246,7 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
   };
 
   // 자동 생성 핸들러
-  const handleAutoGenerate = () => {
+  const handleAutoGenerate = async () => {
     if (nurses.length === 0) {
       alert('먼저 간호사를 등록해주세요.');
       return;
@@ -253,17 +262,32 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
       return;
     }
 
-    // 하드 제약 위반 없는 스케줄 생성 (최대 1000회 시도)
+    // 로딩 시작
+    setIsGenerating(true);
+
+    // 하드 제약 위반 없으면서 연차 승인을 최대화하는 스케줄 생성 (최대 1000회 시도)
     const MAX_ATTEMPTS = 1000;
     let attempt = 0;
-    let finalSchedule: ScheduleCell[] = [];
-    let finalPreviousSchedule: Record<string, ScheduleCell[]> = {};
-    let rejectedList: RejectedAnnualLeave[] = [];
-    let foundValidSchedule = false;
+    let bestSchedule: ScheduleCell[] = [];
+    let bestPreviousSchedule: Record<string, ScheduleCell[]> = {};
+    let bestRejectedList: RejectedAnnualLeave[] = [];
+    let bestApprovedCount = -1; // 최고 승인 연차 개수
+    let totalAnnualLeaves = 0; // 전체 연차 개수
 
-    console.log('🔄 하드 제약 위반 없는 스케줄 생성 시작...');
+    // 진행 상황 초기화
+    setGenerationProgress({
+      current: 0,
+      total: MAX_ATTEMPTS,
+      bestApproved: 0,
+      totalAnnual: 0,
+    });
 
-    while (attempt < MAX_ATTEMPTS && !foundValidSchedule) {
+    console.log('🔄 하드 제약 만족하면서 연차 승인을 최대화하는 스케줄 생성 시작...');
+
+    // UI 업데이트를 위해 약간의 지연 추가
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    while (attempt < MAX_ATTEMPTS) {
       attempt++;
 
       // 1. 이전 5일 스케줄 생성 (제약조건 만족)
@@ -288,7 +312,7 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
       const approvedAnnualLeaves: Record<string, string[]> = {};
       const currentRejectedList: RejectedAnnualLeave[] = [];
 
-      // 모든 연차를 수집
+      // 모든 연차를 수집 (첫 시도에서만)
       interface AnnualLeaveRequest {
         nurseId: string;
         nurseName: string;
@@ -302,6 +326,26 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
           });
         }
       });
+
+      // 첫 시도에서 전체 연차 개수 저장
+      if (attempt === 1) {
+        totalAnnualLeaves = allAnnualLeaves.length;
+        setGenerationProgress(prev => ({
+          ...prev,
+          totalAnnual: totalAnnualLeaves,
+        }));
+        console.log(`📋 총 연차 신청: ${totalAnnualLeaves}개`);
+      }
+
+      // 진행 상황 업데이트 (매 시도마다)
+      if (attempt % 10 === 0) {
+        setGenerationProgress(prev => ({
+          ...prev,
+          current: attempt,
+        }));
+        // UI 업데이트를 위해 약간의 지연
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
 
       // 각 연차를 하나씩 검증
       for (const annual of allAnnualLeaves) {
@@ -379,30 +423,46 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
       const finalValidation = validateSchedule(generatedSchedule, nurses, previousCellsFinal);
       const finalHardViolations = finalValidation.violations.filter(v => v.type === 'HARD');
 
-      // 8. 하드 제약 위반 체크
+      // 8. 하드 제약 위반 체크 및 최적 스케줄 추적
       if (finalHardViolations.length === 0) {
-        // 성공! 하드 제약 위반 없음
-        foundValidSchedule = true;
-        finalSchedule = generatedSchedule;
-        finalPreviousSchedule = previousScheduleByNurse;
-        rejectedList = currentRejectedList;
-        console.log(`✅ ${attempt}번째 시도에서 하드 제약 위반 없는 스케줄 생성 성공!`);
+        // 하드 제약 만족! 연차 승인 개수 확인
+        const approvedCount = Object.values(approvedAnnualLeaves).flat().length;
+
+        // 최고 기록 갱신 시 업데이트
+        if (approvedCount > bestApprovedCount) {
+          bestApprovedCount = approvedCount;
+          bestSchedule = generatedSchedule;
+          bestPreviousSchedule = previousScheduleByNurse;
+          bestRejectedList = currentRejectedList;
+
+          // 진행 상황 업데이트
+          setGenerationProgress(prev => ({
+            ...prev,
+            bestApproved: approvedCount,
+          }));
+
+          console.log(`✅ ${attempt}번째 시도: 연차 승인 ${approvedCount}/${totalAnnualLeaves}개 (최고 기록 갱신)`);
+        }
       } else if (attempt % 100 === 0) {
         // 100번마다 진행상황 로그
-        console.log(`⏳ ${attempt}번째 시도 중... (하드 제약 위반: ${finalHardViolations.length}개)`);
+        const currentBest = bestApprovedCount >= 0 ? `최고: ${bestApprovedCount}/${totalAnnualLeaves}개 연차 승인` : '아직 성공 없음';
+        console.log(`⏳ ${attempt}번째 시도 중... (${currentBest})`);
       }
     }
 
-    // 루프 종료 후 처리
-    if (foundValidSchedule) {
-      console.log(`🎉 총 ${attempt}번 시도하여 성공!`);
-      setPreviousSchedule(finalPreviousSchedule);
-      setSchedule(finalSchedule);
-      setRejectedAnnualLeaves(rejectedList);
+    // 루프 종료 후 최적 스케줄 적용
+    if (bestApprovedCount >= 0) {
+      console.log(`🎉 ${MAX_ATTEMPTS}번 시도 완료! 최고 스케줄: ${bestApprovedCount}/${totalAnnualLeaves}개 연차 승인`);
+      setPreviousSchedule(bestPreviousSchedule);
+      setSchedule(bestSchedule);
+      setRejectedAnnualLeaves(bestRejectedList);
     } else {
       console.log(`❌ ${MAX_ATTEMPTS}번 시도했지만 하드 제약 위반 없는 스케줄을 생성하지 못했습니다.`);
       alert(`${MAX_ATTEMPTS}번 시도했지만 모든 하드 제약을 만족하는 스케줄을 생성하지 못했습니다. 간호사 수나 제약 조건을 조정해주세요.`);
     }
+
+    // 로딩 종료
+    setIsGenerating(false);
   };
 
   // 요일 가져오기
@@ -429,6 +489,34 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
 
   return (
     <div className="schedule-view">
+      {/* 로딩 모달 */}
+      {isGenerating && (
+        <div className="loading-modal-overlay">
+          <div className="loading-modal">
+            <div className="loading-spinner"></div>
+            <h3>⏳ 스케줄 생성 중...</h3>
+            <div className="loading-progress">
+              <div className="progress-text">
+                {generationProgress.current} / {generationProgress.total} 시도 중...
+              </div>
+              {generationProgress.totalAnnual > 0 && (
+                <div className="progress-detail">
+                  최고: {generationProgress.bestApproved} / {generationProgress.totalAnnual}개 연차 승인
+                </div>
+              )}
+              <div className="progress-bar-container">
+                <div
+                  className="progress-bar"
+                  style={{
+                    width: `${(generationProgress.current / generationProgress.total) * 100}%`,
+                  }}
+                ></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="schedule-header">
         <h2>스케줄 관리</h2>
         <div className="date-range">
