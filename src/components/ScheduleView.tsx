@@ -276,23 +276,6 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
     ).length;
   };
 
-  // 스케줄 데이터 초기화
-  const handleReset = () => {
-    if (window.confirm('모든 스케줄 데이터를 초기화하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) {
-      setSchedule([]);
-      setPreviousSchedule({});
-      setRejectedAnnualLeaves([]);
-      const defaultStart = getDefaultStartDate();
-      const defaultEnd = getDefaultEndDate(defaultStart);
-      setStartDate(defaultStart);
-      setEndDate(defaultEnd);
-      ScheduleStorage.clear();
-      PreviousScheduleStorage.clear();
-      RejectedAnnualStorage.clear();
-      DateRangeStorage.clear();
-    }
-  };
-
   // 자동 생성 핸들러
   const handleAutoGenerate = async () => {
     if (nurses.length === 0) {
@@ -313,14 +296,15 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
     // 로딩 시작
     setIsGenerating(true);
 
-    // 하드 제약 위반 없으면서 연차 승인을 최대화하는 스케줄 생성 (최대 1000회 시도)
-    const MAX_ATTEMPTS = 1000;
+    // 하드 제약 위반 없으면서 연차 승인을 최대화하는 스케줄 생성 (최대 10회 시도)
+    const MAX_ATTEMPTS = 10;
     let attempt = 0;
     let bestSchedule: ScheduleCell[] = [];
     let bestPreviousSchedule: Record<string, ScheduleCell[]> = {};
     let bestRejectedList: RejectedAnnualLeave[] = [];
     let bestApprovedCount = -1; // 최고 승인 연차 개수
     let totalAnnualLeaves = 0; // 전체 연차 개수
+    let noImprovementCount = 0; // 개선 없는 연속 시도 횟수
 
     // 진행 상황 초기화
     setGenerationProgress({
@@ -415,7 +399,8 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
           false, // 검증용이므로 randomize=false
           fixedCells,
           previousScheduleInfo,
-          tempApproved
+          tempApproved,
+          10 // maxAttempts: 연차 검증은 빠르게 (10회)
         );
 
         // 제약조건 검증 (하드 제약만 체크, 이전 스케줄 포함)
@@ -459,7 +444,8 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
         true, // UI용이므로 randomize=true
         fixedCells,
         previousScheduleInfo,
-        approvedAnnualLeaves
+        approvedAnnualLeaves,
+        100 // maxAttempts: 최종 생성은 충분히 시도 (100회)
       );
 
       // 7. 최종 스케줄 검증 (이전 스케줄 포함)
@@ -482,6 +468,7 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
           bestSchedule = generatedSchedule;
           bestPreviousSchedule = previousScheduleByNurse;
           bestRejectedList = currentRejectedList;
+          noImprovementCount = 0; // 개선되었으므로 카운트 리셋
 
           // 진행 상황 업데이트
           setGenerationProgress(prev => ({
@@ -490,23 +477,35 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
           }));
 
           console.log(`✅ ${attempt}번째 시도: 연차 승인 ${approvedCount}/${totalAnnualLeaves}개 (최고 기록 갱신)`);
+
+          // 모든 연차 승인 성공 시 조기 종료
+          if (approvedCount === totalAnnualLeaves) {
+            console.log(`🎉 모든 연차 승인 성공! 조기 종료`);
+            break;
+          }
+        } else {
+          noImprovementCount++; // 개선 없음
         }
-      } else if (attempt % 100 === 0) {
-        // 100번마다 진행상황 로그
-        const currentBest = bestApprovedCount >= 0 ? `최고: ${bestApprovedCount}/${totalAnnualLeaves}개 연차 승인` : '아직 성공 없음';
-        console.log(`⏳ ${attempt}번째 시도 중... (${currentBest})`);
+      } else {
+        noImprovementCount++; // 하드 제약 위반
+      }
+
+      // 연속 3회 개선 없으면 조기 종료
+      if (noImprovementCount >= 3 && bestApprovedCount >= 0) {
+        console.log(`⏹️ 연속 3회 개선 없음. 조기 종료 (최고: ${bestApprovedCount}/${totalAnnualLeaves}개 연차 승인)`);
+        break;
       }
     }
 
     // 루프 종료 후 최적 스케줄 적용
     if (bestApprovedCount >= 0) {
-      console.log(`🎉 ${MAX_ATTEMPTS}번 시도 완료! 최고 스케줄: ${bestApprovedCount}/${totalAnnualLeaves}개 연차 승인`);
+      console.log(`🎉 스케줄 생성 완료! (${attempt}번 시도) 연차 승인: ${bestApprovedCount}/${totalAnnualLeaves}개`);
       setPreviousSchedule(bestPreviousSchedule);
       setSchedule(bestSchedule);
       setRejectedAnnualLeaves(bestRejectedList);
     } else {
-      console.log(`❌ ${MAX_ATTEMPTS}번 시도했지만 하드 제약 위반 없는 스케줄을 생성하지 못했습니다.`);
-      alert(`${MAX_ATTEMPTS}번 시도했지만 모든 하드 제약을 만족하는 스케줄을 생성하지 못했습니다. 간호사 수나 제약 조건을 조정해주세요.`);
+      console.log(`❌ ${attempt}번 시도했지만 하드 제약 위반 없는 스케줄을 생성하지 못했습니다.`);
+      alert(`${attempt}번 시도했지만 모든 하드 제약을 만족하는 스케줄을 생성하지 못했습니다. 간호사 수나 제약 조건을 조정해주세요.`);
     }
 
     // 로딩 종료
@@ -590,11 +589,6 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
           <button onClick={handleAutoGenerate} className="btn-auto-generate">
             {schedule.length > 0 ? '재생성' : '자동 생성'}
           </button>
-          {schedule.length > 0 && (
-            <button onClick={handleReset} className="btn-reset-schedule">
-              초기화
-            </button>
-          )}
         </div>
       </div>
 
@@ -692,7 +686,7 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
                   </th>
                 );
               })}
-              <th className="stats-header" colSpan={6}>통계</th>
+              <th className="stats-header" colSpan={7}>통계</th>
             </tr>
             <tr>
               <th></th>
@@ -708,11 +702,12 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
                 );
               })}
               <th className="stat-label">D</th>
+              <th className="stat-label">M</th>
               <th className="stat-label">E</th>
               <th className="stat-label">N</th>
-              <th className="stat-label">O</th>
-              <th className="stat-label">A</th>
-              <th className="stat-label">WO</th>
+              <th className="stat-label">OFF</th>
+              <th className="stat-label">연차 OFF</th>
+              <th className="stat-label">주휴 OFF</th>
             </tr>
           </thead>
           <tbody>
@@ -781,6 +776,7 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
                     );
                   })}
                   <td className="stat-cell">{getNurseShiftCount(nurse.id, 'D')}</td>
+                  <td className="stat-cell">{getNurseShiftCount(nurse.id, 'M')}</td>
                   <td className="stat-cell">{getNurseShiftCount(nurse.id, 'E')}</td>
                   <td className="stat-cell">{getNurseShiftCount(nurse.id, 'N')}</td>
                   <td className="stat-cell">{getNurseShiftCount(nurse.id, 'OFF')}</td>

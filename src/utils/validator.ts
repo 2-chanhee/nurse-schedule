@@ -580,6 +580,58 @@ export function validateAnnualWeekOffConflict(nurse: Nurse): Violation[] {
 }
 
 /**
+ * 휴일 공평 분배 검증 (HARD 제약)
+ * 간호사별 총 휴일 수(OFF + WEEK_OFF + ANNUAL + MENSTRUAL)의 차이가 3일 이상이면 위반
+ * 이전 스케줄은 제외하고 현재 4주만 계산 (이전은 이미 정해져 있으므로)
+ */
+export function validateOffDayBalance(
+  schedule: ScheduleCell[],
+  nurses: Nurse[]
+): Violation[] {
+  const violations: Violation[] = [];
+
+  // 각 간호사별 총 휴일 수 계산 (현재 4주만)
+  const offDayCounts: Record<string, number> = {};
+  nurses.forEach((nurse) => {
+    offDayCounts[nurse.id] = 0;
+  });
+
+  // 휴일 타입들
+  const offShiftTypes: ShiftType[] = ['OFF', 'WEEK_OFF', 'ANNUAL', 'MENSTRUAL'];
+
+  // 현재 스케줄에서만 휴일 카운트
+  schedule.forEach((cell) => {
+    if (offShiftTypes.includes(cell.shiftType)) {
+      offDayCounts[cell.nurseId]++;
+    }
+  });
+
+  // 최대값과 최소값 찾기
+  const counts = Object.values(offDayCounts);
+  if (counts.length === 0) return violations;
+
+  const maxOffDays = Math.max(...counts);
+  const minOffDays = Math.min(...counts);
+  const difference = maxOffDays - minOffDays;
+
+  // 차이가 3일 이상이면 HARD 위반
+  if (difference >= 3) {
+    const maxNurses = nurses.filter((n) => offDayCounts[n.id] === maxOffDays);
+    const minNurses = nurses.filter((n) => offDayCounts[n.id] === minOffDays);
+
+    violations.push({
+      type: 'HARD',
+      nurseId: '',
+      nurseName: '',
+      date: '',
+      message: `휴일 공평 분배 위반: 최대 ${maxOffDays}일 (${maxNurses.map((n) => n.name).join(', ')}) vs 최소 ${minOffDays}일 (${minNurses.map((n) => n.name).join(', ')}) - 차이 ${difference}일`,
+    });
+  }
+
+  return violations;
+}
+
+/**
  * 전체 스케줄 검증
  */
 export function validateSchedule(
@@ -690,15 +742,15 @@ export function validateSchedule(
     violations.push(...annualWeekOffConflict);
   });
 
+  // 휴일 공평 분배 검증 (HARD 제약, 현재 4주만)
+  const offDayBalanceViolations = validateOffDayBalance(schedule, nurses);
+  violations.push(...offDayBalanceViolations);
+
   // 🚧 미구현 - 비권장 패턴 검증 (SOFT)
   // nurses.forEach((nurse) => {
   //   const discouragedPatternViolations = validateDiscouragedPattern(nurse.id, nurse.name, schedule);
   //   violations.push(...discouragedPatternViolations);
   // });
-
-  // 🚧 미구현 - 휴일 공평 분배 검증 (SOFT → HARD)
-  // const offDayBalanceViolations = validateOffDayBalance(schedule, nurses);
-  // violations.push(...offDayBalanceViolations);
 
   // 🚧 미구현 - 나이트 근무 공평 분배 검증 (SOFT)
   // const nightBalanceViolations = validateNightBalance(schedule, nurses);

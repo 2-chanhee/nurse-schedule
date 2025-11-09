@@ -8,6 +8,7 @@ import {
   validateNightRestDays,
   validateNightTwoWeekLimit,
   validateAnnualWeekOffConflict,
+  validateOffDayBalance,
 } from './validator';
 import type { ScheduleCell, Nurse } from '../types';
 
@@ -917,5 +918,186 @@ describe('validator.ts - validateAnnualWeekOffConflict', () => {
 
     expect(violations).toHaveLength(1); // 수요일만 위반
     expect(violations[0].date).toBe('2024-01-10');
+  });
+});
+
+describe('validator.ts - validateOffDayBalance', () => {
+  it('정상 케이스: 휴일 차이가 2일 이하', () => {
+    const nurses: Nurse[] = [
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
+      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
+      { id: 'nurse-3', name: '간호사3', weekOffDay: 'TUE', annualLeaveDates: [] },
+    ];
+
+    const schedule: ScheduleCell[] = [
+      // 간호사1: 8일 휴일
+      { nurseId: 'nurse-1', date: '2024-01-01', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-02', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-03', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-04', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-05', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-06', shiftType: 'ANNUAL', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-07', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-08', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-09', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-10', shiftType: 'MENSTRUAL', isFixed: false },
+      // 간호사2: 7일 휴일
+      { nurseId: 'nurse-2', date: '2024-01-01', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-02', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-2', date: '2024-01-03', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-04', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-05', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-06', shiftType: 'ANNUAL', isFixed: true },
+      { nurseId: 'nurse-2', date: '2024-01-07', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-08', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-2', date: '2024-01-09', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-10', shiftType: 'MENSTRUAL', isFixed: false },
+      // 간호사3: 6일 휴일 (차이 2일)
+      { nurseId: 'nurse-3', date: '2024-01-01', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-3', date: '2024-01-02', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-3', date: '2024-01-03', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-3', date: '2024-01-04', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-3', date: '2024-01-05', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-3', date: '2024-01-06', shiftType: 'ANNUAL', isFixed: true },
+      { nurseId: 'nurse-3', date: '2024-01-07', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-3', date: '2024-01-08', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-3', date: '2024-01-09', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-3', date: '2024-01-10', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateOffDayBalance(schedule, nurses);
+
+    expect(violations).toHaveLength(0); // 차이 2일은 정상
+  });
+
+  it('위반 케이스: 휴일 차이가 3일 (HARD 위반)', () => {
+    const nurses: Nurse[] = [
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
+      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
+    ];
+
+    const schedule: ScheduleCell[] = [
+      // 간호사1: 8일 휴일
+      { nurseId: 'nurse-1', date: '2024-01-01', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-02', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-03', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-04', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-05', shiftType: 'ANNUAL', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-06', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-07', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-08', shiftType: 'MENSTRUAL', isFixed: false },
+      // 간호사2: 5일 휴일 (차이 3일)
+      { nurseId: 'nurse-2', date: '2024-01-01', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-02', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-2', date: '2024-01-03', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-04', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-05', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-06', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-07', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-2', date: '2024-01-08', shiftType: 'OFF', isFixed: false },
+    ];
+
+    const violations = validateOffDayBalance(schedule, nurses);
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].type).toBe('HARD');
+    expect(violations[0].message).toContain('휴일 공평 분배 위반');
+    expect(violations[0].message).toContain('차이 3일');
+    expect(violations[0].message).toContain('간호사1'); // 최대
+    expect(violations[0].message).toContain('간호사2'); // 최소
+  });
+
+  it('위반 케이스: 휴일 차이가 4일 이상', () => {
+    const nurses: Nurse[] = [
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
+      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
+    ];
+
+    const schedule: ScheduleCell[] = [
+      // 간호사1: 10일 휴일
+      { nurseId: 'nurse-1', date: '2024-01-01', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-02', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-03', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-04', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-05', shiftType: 'ANNUAL', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-06', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-07', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-08', shiftType: 'MENSTRUAL', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-09', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-10', shiftType: 'OFF', isFixed: false },
+      // 간호사2: 5일 휴일 (차이 5일)
+      { nurseId: 'nurse-2', date: '2024-01-01', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-02', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-2', date: '2024-01-03', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-04', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-05', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-06', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-07', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-2', date: '2024-01-08', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-09', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-10', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateOffDayBalance(schedule, nurses);
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].type).toBe('HARD');
+    expect(violations[0].message).toContain('차이 5일');
+  });
+
+  it('정상 케이스: 모든 간호사가 동일한 휴일 수', () => {
+    const nurses: Nurse[] = [
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
+      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
+    ];
+
+    const schedule: ScheduleCell[] = [
+      // 간호사1: 6일 휴일
+      { nurseId: 'nurse-1', date: '2024-01-01', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-02', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-03', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-04', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-01-05', shiftType: 'ANNUAL', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-06', shiftType: 'MENSTRUAL', isFixed: false },
+      // 간호사2: 6일 휴일 (차이 0일)
+      { nurseId: 'nurse-2', date: '2024-01-01', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-2', date: '2024-01-02', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-03', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-04', shiftType: 'OFF', isFixed: false },
+      { nurseId: 'nurse-2', date: '2024-01-05', shiftType: 'ANNUAL', isFixed: true },
+      { nurseId: 'nurse-2', date: '2024-01-06', shiftType: 'MENSTRUAL', isFixed: false },
+    ];
+
+    const violations = validateOffDayBalance(schedule, nurses);
+
+    expect(violations).toHaveLength(0); // 차이 0일은 정상
+  });
+
+  it('엣지 케이스: 간호사 1명', () => {
+    const nurses: Nurse[] = [
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
+    ];
+
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-01-01', shiftType: 'WEEK_OFF', isFixed: true },
+      { nurseId: 'nurse-1', date: '2024-01-02', shiftType: 'OFF', isFixed: false },
+    ];
+
+    const violations = validateOffDayBalance(schedule, nurses);
+
+    expect(violations).toHaveLength(0); // 1명이면 차이가 0이므로 위반 없음
+  });
+
+  it('엣지 케이스: 빈 스케줄', () => {
+    const nurses: Nurse[] = [
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
+      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
+    ];
+
+    const schedule: ScheduleCell[] = [];
+
+    const violations = validateOffDayBalance(schedule, nurses);
+
+    expect(violations).toHaveLength(0); // 빈 스케줄이면 모두 0일이므로 위반 없음
   });
 });

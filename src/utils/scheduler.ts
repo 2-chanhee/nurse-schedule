@@ -1,5 +1,6 @@
 import type { Nurse, ScheduleCell, ShiftType, DayOfWeek, PreviousScheduleInfo } from '../types';
 import { DAILY_REQUIRED_STAFF, MAX_CONSECUTIVE_WORK_DAYS } from '../constants';
+import { validateSchedule } from './validator';
 
 /**
  * Date 객체의 getDay() 결과를 DayOfWeek 타입으로 변환
@@ -11,18 +12,10 @@ function getDayOfWeek(date: Date): DayOfWeek {
 }
 
 /**
- * 간단한 자동 스케줄 생성
- * 기본 규칙:
- * 1. 일일 필수 인원 충족 (D: 3, M: 1, E: 3, N: 2)
- * 2. 근무 순서 준수 (D → M → E → N)
- * 3. 공평한 근무 분배
- *
- * @param randomize - true일 경우 매번 다른 스케줄 생성 (UI용), false일 경우 동일한 결과 (테스트용, 기본값)
- * @param fixedCells - 고정된 셀 목록 (재생성 시 유지됨)
- * @param previousScheduleInfo - 이전 4일 스케줄 정보 (제약 조건 검증에 사용)
- * @param approvedAnnualLeaves - 승인된 연차 목록 (nurseId -> 날짜 배열), undefined이면 모든 연차 포함
+ * 내부 스케줄 생성 함수 (그리디 알고리즘)
+ * 백트래킹 래퍼에서 호출됨
  */
-export function generateSimpleSchedule(
+function generateSimpleScheduleInternal(
   nurses: Nurse[],
   startDate: string,
   endDate: string,
@@ -66,6 +59,12 @@ export function generateSimpleSchedule(
   const weeklyOffCount: Record<string, number> = {};
   nurses.forEach((nurse) => {
     weeklyOffCount[nurse.id] = 0;
+  });
+
+  // 각 간호사의 총 휴일 수 (OFF + WEEK_OFF + ANNUAL + MENSTRUAL) - 휴일 공평 분배용
+  const totalOffDays: Record<string, number> = {};
+  nurses.forEach((nurse) => {
+    totalOffDays[nurse.id] = 0;
   });
 
   // 각 간호사의 나이트 블록 진행 상태 (0: 나이트 아님, 1: 1일차, 2: 2일차, 3: 3일차)
@@ -206,6 +205,7 @@ export function generateSimpleSchedule(
         });
         assignedNurses.add(nurse.id);
         todayShift[nurse.id] = 'WEEK_OFF';
+        totalOffDays[nurse.id]++; // 휴일 카운트 증가
       }
     }
 
@@ -229,19 +229,22 @@ export function generateSimpleSchedule(
         });
         assignedNurses.add(nurse.id);
         todayShift[nurse.id] = 'ANNUAL';
+        totalOffDays[nurse.id]++; // 휴일 카운트 증가
       }
     }
 
     // 0-2. 강제 OFF 배정 (제약 조건 만족을 위해 근무 배정 전에 처리)
-    // 조건: 1) 5일 연속 근무 완료, 2) 나이트 후 휴식 필요
+    // 조건: 1) 5일 연속 근무 완료, 2) 나이트 후 휴식 필요, 3) 토요일에 주간 OFF 0일
     // 단, 나이트 진행 중이면 강제 OFF 제외 (나이트 블록 유지)
+    const isSaturday = dayOfWeek === 6; // 토요일 체크
     for (const nurse of nurses) {
       if (assignedNurses.has(nurse.id)) continue; // 이미 배정됨
       if (nightBlockStatus[nurse.id] !== 0) continue; // 나이트 진행 중이면 강제 OFF 제외
 
       const needsForceOff =
         consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS || // 5일 연속 근무 완료
-        nightRestDaysRemaining[nurse.id] > 0; // 나이트 후 휴식 필요
+        nightRestDaysRemaining[nurse.id] > 0 || // 나이트 후 휴식 필요
+        (isSaturday && weeklyOffCount[nurse.id] === 0); // 토요일에 주간 OFF 0일 (주간 OFF 규칙 강제)
 
       if (needsForceOff) {
         schedule.push({
@@ -253,6 +256,7 @@ export function generateSimpleSchedule(
         assignedNurses.add(nurse.id);
         todayShift[nurse.id] = 'OFF';
         weeklyOffCount[nurse.id]++;
+        totalOffDays[nurse.id]++; // 휴일 카운트 증가
       }
     }
 
@@ -264,7 +268,7 @@ export function generateSimpleSchedule(
       if (dayCount >= DAILY_REQUIRED_STAFF.D) break;
       if (assignedNurses.has(nurse.id)) continue;
 
-      // D는 필수 인원이므로 토요일 OFF 강제 조건 제외하고 연속 근무일만 체크
+      // D는 필수 인원이므로 연속 근무일만 체크
       if (consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS) {
         continue;
       }
@@ -287,14 +291,13 @@ export function generateSimpleSchedule(
 
     // 2. 중간 근무 배정 (1명) - D 직후 배정 (선택지가 많을 때 할당하여 성공률 극대화)
     // M은 "D 다음 또는 M 다음"에만 가능하므로, D 직후에 배정하면 최적
-    // 토요일 OFF 강제 조건도 완화하여 최대한 M=0 방지
     // 고정된 셀에서 이미 M이 몇 명 할당되었는지 카운트
     let middleCount = Object.values(todayShift).filter(shift => shift === 'M').length;
     for (const nurse of getAvailableNurses()) {
       if (middleCount >= DAILY_REQUIRED_STAFF.M) break;
       if (assignedNurses.has(nurse.id)) continue;
 
-      // M은 연속 근무일만 체크 (토요일 OFF 강제 제외)
+      // M은 연속 근무일만 체크
       if (consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS) {
         continue;
       }
@@ -381,7 +384,8 @@ export function generateSimpleSchedule(
         if (assignedNurses.has(nurse.id)) continue;
         if (nightBlockStatus[nurse.id] !== 0) continue; // 이미 나이트 중이면 스킵
 
-        // N은 필수 인원이므로 토요일 OFF 강제 조건 제외하고 연속 근무일만 체크
+        // N은 필수 인원이므로 토요일 체크 제외 (필수 인원 충족 우선)
+        // N은 필수 인원이므로 연속 근무일만 체크
         if (consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS) {
           continue;
         }
@@ -432,7 +436,7 @@ export function generateSimpleSchedule(
       if (eveningCount >= DAILY_REQUIRED_STAFF.E) break;
       if (assignedNurses.has(nurse.id)) continue;
 
-      // E는 필수 인원이므로 토요일 OFF 강제 조건 제외하고 연속 근무일만 체크
+      // E는 필수 인원이므로 연속 근무일만 체크
       if (consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS) {
         continue;
       }
@@ -457,6 +461,7 @@ export function generateSimpleSchedule(
 
     // 5. 나머지는 OFF 배정
     // 주간 OFF가 0인 간호사에게 우선 OFF 배정 (항상 적용)
+    // 추가: 휴일 공평 분배를 위해 totalOffDays 적은 사람 우선
     const needsOff: Nurse[] = [];
     const others: Nurse[] = [];
 
@@ -471,6 +476,10 @@ export function generateSimpleSchedule(
       }
     }
 
+    // 휴일 공평 분배: others 그룹만 totalOffDays 기준으로 정렬
+    // needsOff 그룹은 주간 OFF 규칙 준수를 위해 정렬하지 않음 (우선순위 최고)
+    others.sort((a, b) => totalOffDays[a.id] - totalOffDays[b.id]);
+
     // 주간 OFF 필요한 사람 우선 OFF 배정
     for (const nurse of needsOff) {
       schedule.push({
@@ -481,6 +490,7 @@ export function generateSimpleSchedule(
       });
       todayShift[nurse.id] = 'OFF';
       weeklyOffCount[nurse.id]++;
+      totalOffDays[nurse.id]++; // 휴일 카운트 증가
     }
 
     // 나머지도 OFF 배정
@@ -493,6 +503,7 @@ export function generateSimpleSchedule(
       });
       todayShift[nurse.id] = 'OFF';
       weeklyOffCount[nurse.id]++;
+      totalOffDays[nurse.id]++; // 휴일 카운트 증가
     }
 
     // 6. 오늘 배정이 완료되면 lastShift, 연속 근무일, 나이트 블록 상태 업데이트
@@ -574,5 +585,73 @@ export function generatePreviousSchedule(
     [], // 고정 셀 없음
     undefined, // 이전 스케줄 정보 없음
     {} // 연차 없음 (이전 5일에는 연차 배정 안 함)
+  );
+}
+
+/**
+ * 백트래킹을 활용한 스케줄 생성 (공개 API)
+ * 모든 하드 제약 조건을 만족할 때까지 여러 번 시도
+ *
+ * @param randomize - true일 경우 매번 다른 스케줄 생성 (UI용), false일 경우 동일한 결과 (테스트용, 기본값)
+ * @param fixedCells - 고정된 셀 목록 (재생성 시 유지됨)
+ * @param previousScheduleInfo - 이전 4일 스케줄 정보 (제약 조건 검증에 사용)
+ * @param approvedAnnualLeaves - 승인된 연차 목록 (nurseId -> 날짜 배열), undefined이면 모든 연차 포함
+ * @param maxAttempts - 최대 시도 횟수 (기본값: 100)
+ */
+export function generateSimpleSchedule(
+  nurses: Nurse[],
+  startDate: string,
+  endDate: string,
+  randomize: boolean = false,
+  fixedCells: ScheduleCell[] = [],
+  previousScheduleInfo?: PreviousScheduleInfo,
+  approvedAnnualLeaves?: Record<string, string[]>,
+  maxAttempts: number = 100
+): ScheduleCell[] {
+  // 백트래킹: 하드 제약 조건을 모두 만족할 때까지 여러 번 시도
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    // 각 시도마다 랜덤 정렬 사용 (다른 배정 순서 시도)
+    const useRandomize = randomize || attempt > 1; // 첫 시도는 원래 randomize 값, 그 이후는 강제 randomize
+
+    const schedule = generateSimpleScheduleInternal(
+      nurses,
+      startDate,
+      endDate,
+      useRandomize,
+      fixedCells,
+      previousScheduleInfo,
+      approvedAnnualLeaves
+    );
+
+    // 하드 제약 조건 검증
+    const { violations } = validateSchedule(schedule, nurses, previousScheduleInfo?.schedules ? Object.values(previousScheduleInfo.schedules).flat() : []);
+    const hardViolations = violations.filter(v => v.type === 'HARD');
+
+    // 하드 제약 위반이 없으면 성공
+    if (hardViolations.length === 0) {
+      if (attempt > 1) {
+        console.log(`✅ 백트래킹 성공: ${attempt}번째 시도에서 모든 하드 제약 만족`);
+      }
+      return schedule;
+    }
+
+    // 마지막 시도에서 실패하면 경고 출력
+    if (attempt === maxAttempts) {
+      console.warn(`⚠️ 백트래킹 실패: ${maxAttempts}회 시도 후에도 하드 제약 ${hardViolations.length}개 위반`);
+      hardViolations.forEach(v => {
+        console.warn(`  - ${v.message}`);
+      });
+    }
+  }
+
+  // 최대 시도 횟수를 초과하면 마지막 시도 결과 반환 (하드 제약 위반 가능)
+  return generateSimpleScheduleInternal(
+    nurses,
+    startDate,
+    endDate,
+    true, // 강제 randomize
+    fixedCells,
+    previousScheduleInfo,
+    approvedAnnualLeaves
   );
 }

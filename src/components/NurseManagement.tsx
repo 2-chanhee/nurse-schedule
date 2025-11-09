@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { Nurse, DayOfWeek } from '../types';
 import { DAYS_OF_WEEK, DAY_OF_WEEK_LABELS } from '../types';
 import { DEFAULT_NURSE_COUNT } from '../constants';
-import { NurseStorage } from '../utils/storage';
+import { clearAllStorage } from '../utils/storage';
 import '../styles/NurseManagement.css';
 
 interface NurseManagementProps {
@@ -93,11 +93,11 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
     onNursesChange(defaultNurses);
   };
 
-  // 간호사 데이터 초기화
+  // 모든 데이터 초기화 (간호사 + 스케줄)
   const handleReset = () => {
-    if (window.confirm('모든 간호사 데이터를 초기화하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) {
+    if (window.confirm('모든 데이터를 초기화하시겠습니까?\n간호사 정보와 스케줄이 모두 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.')) {
       onNursesChange([]);
-      NurseStorage.clear();
+      clearAllStorage();
     }
   };
 

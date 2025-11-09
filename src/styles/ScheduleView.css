@@ -434,12 +434,12 @@
   position: sticky;
   left: 0;
   background-color: #d1d5db;
-  font-weight: 600;
+  font-weight: 700;
   color: #111827;
   text-align: center;
   border-right: 2px solid #9ca3af;
   z-index: 5;
-  font-size: 12px;
+  font-size: 16px;
 }
 
 .previous-cell {
