@@ -234,17 +234,42 @@ function generateSimpleScheduleInternal(
     }
 
     // 0-2. 강제 OFF 배정 (제약 조건 만족을 위해 근무 배정 전에 처리)
-    // 조건: 1) 5일 연속 근무 완료, 2) 나이트 후 휴식 필요, 3) 토요일에 주간 OFF 0일
+    // 주간 OFF 정확히 1개 규칙: 주휴OFF 1개 + 일반 OFF 1개 = 총 2개 휴일
+    // 조건: 1) 5일 연속 근무 완료, 2) 나이트 후 휴식 필요 (최우선), 3) 토요일에 주간 OFF 0일
+    // 조건 4) 나이트 후 휴식 2일 필요 + 내일이 주휴일 → 오늘 OFF 배정 (현직 간호사 조언)
     // 단, 나이트 진행 중이면 강제 OFF 제외 (나이트 블록 유지)
     const isSaturday = dayOfWeek === 6; // 토요일 체크
     for (const nurse of nurses) {
       if (assignedNurses.has(nurse.id)) continue; // 이미 배정됨
       if (nightBlockStatus[nurse.id] !== 0) continue; // 나이트 진행 중이면 강제 OFF 제외
 
-      const needsForceOff =
-        consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS || // 5일 연속 근무 완료
-        nightRestDaysRemaining[nurse.id] > 0 || // 나이트 후 휴식 필요
-        (isSaturday && weeklyOffCount[nurse.id] === 0); // 토요일에 주간 OFF 0일 (주간 OFF 규칙 강제)
+      // 나이트 후 휴식은 최우선 (주간 OFF 개수 무시)
+      const needsNightRest = nightRestDaysRemaining[nurse.id] > 0;
+
+      // 추가: 나이트 종료 직후(휴식 2일 필요) + 내일이 주휴일 → 오늘 OFF 강제 배정
+      // 예: N→N→OFF→주휴OFF 패턴 자동 생성
+      let needsOffBeforeWeekOff = false;
+      if (nightRestDaysRemaining[nurse.id] === 2 && dateIndex < dates.length - 1) {
+        const tomorrowDate = new Date(dates[dateIndex + 1]);
+        const tomorrowDayOfWeek = getDayOfWeek(tomorrowDate);
+        if (nurse.weekOffDay === tomorrowDayOfWeek) {
+          needsOffBeforeWeekOff = true; // 내일이 주휴일이면 오늘 OFF 강제 배정
+        }
+      }
+
+      // 주간 OFF가 이미 1개 이상이면 추가 OFF 배정 안 함 (단, 나이트 후 휴식은 예외)
+      const hasWeeklyOff = weeklyOffCount[nurse.id] >= 1;
+
+      let needsForceOff = false;
+      if (needsNightRest || needsOffBeforeWeekOff) {
+        // 나이트 후 휴식은 주간 OFF 개수 무시하고 강제 배정
+        needsForceOff = true;
+      } else if (!hasWeeklyOff) {
+        // 주간 OFF가 없을 때만 다른 조건 체크
+        needsForceOff =
+          consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS || // 5일 연속 근무 완료
+          (isSaturday && weeklyOffCount[nurse.id] === 0); // 토요일에 주간 OFF 0일 (주간 OFF 규칙 강제)
+      }
 
       if (needsForceOff) {
         schedule.push({
@@ -260,71 +285,13 @@ function generateSimpleScheduleInternal(
       }
     }
 
-
-    // 1. 데이 근무 배정 (3명) - 최우선 배정
-    // 고정된 셀에서 이미 D가 몇 명 할당되었는지 카운트
-    let dayCount = Object.values(todayShift).filter(shift => shift === 'D').length;
-    for (const nurse of getAvailableNurses()) {
-      if (dayCount >= DAILY_REQUIRED_STAFF.D) break;
-      if (assignedNurses.has(nurse.id)) continue;
-
-      // D는 필수 인원이므로 연속 근무일만 체크
-      if (consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS) {
-        continue;
-      }
-
-      const last = lastShift[nurse.id];
-      if (!last || last === 'OFF' || last === 'WEEK_OFF' ||
-          last === 'ANNUAL' || last === 'MENSTRUAL' || last === 'D') {
-        schedule.push({
-          nurseId: nurse.id,
-          date,
-          shiftType: 'D',
-          isFixed: false,
-        });
-        assignedNurses.add(nurse.id);
-        todayShift[nurse.id] = 'D';
-        workCount[nurse.id]++;
-        dayCount++;
-      }
-    }
-
-    // 2. 중간 근무 배정 (1명) - D 직후 배정 (선택지가 많을 때 할당하여 성공률 극대화)
-    // M은 "D 다음 또는 M 다음"에만 가능하므로, D 직후에 배정하면 최적
-    // 고정된 셀에서 이미 M이 몇 명 할당되었는지 카운트
-    let middleCount = Object.values(todayShift).filter(shift => shift === 'M').length;
-    for (const nurse of getAvailableNurses()) {
-      if (middleCount >= DAILY_REQUIRED_STAFF.M) break;
-      if (assignedNurses.has(nurse.id)) continue;
-
-      // M은 연속 근무일만 체크
-      if (consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS) {
-        continue;
-      }
-
-      const last = lastShift[nurse.id];
-      // M은 휴일 후, D, M 다음 가능
-      if (!last || last === 'OFF' || last === 'WEEK_OFF' ||
-          last === 'ANNUAL' || last === 'MENSTRUAL' ||
-          last === 'D' || last === 'M') {
-        schedule.push({
-          nurseId: nurse.id,
-          date,
-          shiftType: 'M',
-          isFixed: false,
-        });
-        assignedNurses.add(nurse.id);
-        todayShift[nurse.id] = 'M';
-        workCount[nurse.id]++;
-        middleCount++;
-      }
-    }
-
-    // 3. 나이트 근무 배정 (2명) - 나이트 블록 관리 (2-3일 연속)
+    // 1. 나이트 근무 배정 (2명) - 최우선 배정 (현직 간호사 조언 반영)
+    // 나이트를 먼저 배정하면 주휴일을 자연스럽게 휴식 2일에 활용 가능
+    // 예: N→N→주휴OFF→OFF, N→N→N→OFF→주휴
     // 고정된 셀에서 이미 N이 몇 명 할당되었는지 카운트
     let nightCount = Object.values(todayShift).filter(shift => shift === 'N').length;
 
-    // 3-1. 이미 나이트 중인 간호사 우선 처리 (연속성 유지)
+    // 1-1. 이미 나이트 중인 간호사 우선 처리 (연속성 유지)
     for (const nurse of nurses) {
       if (nightCount >= DAILY_REQUIRED_STAFF.N) break;
       if (assignedNurses.has(nurse.id)) continue;
@@ -369,7 +336,7 @@ function generateSimpleScheduleInternal(
       // status === 3이면 반드시 종료 (배정 업데이트에서 nightRestDaysRemaining 설정)
     }
 
-    // 3-2. 부족한 만큼 새로운 나이트 시작 (1일차)
+    // 1-2. 부족한 만큼 새로운 나이트 시작 (1일차)
     // 단, 최소 2일이 남아있어야 나이트 시작 가능
     // 예외 1: 스케줄 초반(처음 2일)은 이전 스케줄과 연결될 수 있으므로 제한 없음
     // 예외 2: 마지막 날에 N이 부족하면 1일 나이트도 허용 (긴급 조치)
@@ -426,6 +393,65 @@ function generateSimpleScheduleInternal(
           nightCount++;
           nightBlockStatus[nurse.id] = 1; // 나이트 1일차 시작
         }
+      }
+    }
+
+    // 2. 데이 근무 배정 (3명)
+    // 고정된 셀에서 이미 D가 몇 명 할당되었는지 카운트
+    let dayCount = Object.values(todayShift).filter(shift => shift === 'D').length;
+    for (const nurse of getAvailableNurses()) {
+      if (dayCount >= DAILY_REQUIRED_STAFF.D) break;
+      if (assignedNurses.has(nurse.id)) continue;
+
+      // D는 필수 인원이므로 연속 근무일만 체크
+      if (consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS) {
+        continue;
+      }
+
+      const last = lastShift[nurse.id];
+      if (!last || last === 'OFF' || last === 'WEEK_OFF' ||
+          last === 'ANNUAL' || last === 'MENSTRUAL' || last === 'D') {
+        schedule.push({
+          nurseId: nurse.id,
+          date,
+          shiftType: 'D',
+          isFixed: false,
+        });
+        assignedNurses.add(nurse.id);
+        todayShift[nurse.id] = 'D';
+        workCount[nurse.id]++;
+        dayCount++;
+      }
+    }
+
+    // 3. 중간 근무 배정 (1명) - D 직후 배정 (선택지가 많을 때 할당하여 성공률 극대화)
+    // M은 "D 다음 또는 M 다음"에만 가능하므로, D 직후에 배정하면 최적
+    // 고정된 셀에서 이미 M이 몇 명 할당되었는지 카운트
+    let middleCount = Object.values(todayShift).filter(shift => shift === 'M').length;
+    for (const nurse of getAvailableNurses()) {
+      if (middleCount >= DAILY_REQUIRED_STAFF.M) break;
+      if (assignedNurses.has(nurse.id)) continue;
+
+      // M은 연속 근무일만 체크
+      if (consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS) {
+        continue;
+      }
+
+      const last = lastShift[nurse.id];
+      // M은 휴일 후, D, M 다음 가능
+      if (!last || last === 'OFF' || last === 'WEEK_OFF' ||
+          last === 'ANNUAL' || last === 'MENSTRUAL' ||
+          last === 'D' || last === 'M') {
+        schedule.push({
+          nurseId: nurse.id,
+          date,
+          shiftType: 'M',
+          isFixed: false,
+        });
+        assignedNurses.add(nurse.id);
+        todayShift[nurse.id] = 'M';
+        workCount[nurse.id]++;
+        middleCount++;
       }
     }
 
@@ -494,6 +520,8 @@ function generateSimpleScheduleInternal(
     }
 
     // 나머지도 OFF 배정
+    // 주의: 이미 weeklyOffCount >= 1인 간호사도 OFF를 받을 수 있음
+    // 이 경우 validator가 위반으로 표시하고, 백트래킹이 재시도함
     for (const nurse of others) {
       schedule.push({
         nurseId: nurse.id,
@@ -596,7 +624,7 @@ export function generatePreviousSchedule(
  * @param fixedCells - 고정된 셀 목록 (재생성 시 유지됨)
  * @param previousScheduleInfo - 이전 4일 스케줄 정보 (제약 조건 검증에 사용)
  * @param approvedAnnualLeaves - 승인된 연차 목록 (nurseId -> 날짜 배열), undefined이면 모든 연차 포함
- * @param maxAttempts - 최대 시도 횟수 (기본값: 100)
+ * @param maxAttempts - 최대 시도 횟수 (기본값: 150, OFF ≤ 2 제약으로 난이도 증가)
  */
 export function generateSimpleSchedule(
   nurses: Nurse[],
@@ -606,7 +634,7 @@ export function generateSimpleSchedule(
   fixedCells: ScheduleCell[] = [],
   previousScheduleInfo?: PreviousScheduleInfo,
   approvedAnnualLeaves?: Record<string, string[]>,
-  maxAttempts: number = 100
+  maxAttempts: number = 150 // OFF ≤ 2 제약 추가로 난이도 증가, 150회로 상향
 ): ScheduleCell[] {
   // 백트래킹: 하드 제약 조건을 모두 만족할 때까지 여러 번 시도
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {

@@ -212,14 +212,35 @@ export function validateWeeklyRest(
       });
     }
 
-    // OFF가 최소 1일 미만인 경우
-    if (offCount < 1) {
+    // OFF 검증 (사용자 요구사항: 주간 OFF는 1-3개 허용, 4개 이상은 위반)
+    // 수학적 제약: 평균 주당 휴일 2.8일 → 모든 간호사가 OFF ≤ 2는 불가능
+    // - offCount === 0: HARD (필수 휴식 미확보)
+    // - offCount === 1: OK (이상적)
+    // - offCount === 2-3: SOFT (나이트 후 휴식 등으로 불가피)
+    // - offCount >= 4: HARD (과도한 휴식)
+    if (offCount === 0) {
       violations.push({
         type: 'HARD',
         nurseId,
         nurseName,
         date: weekStartDate,
         message: `${nurseName} - ${weekStartDate} 주: OFF가 ${offCount}일 (최소 1일 필요)`,
+      });
+    } else if (offCount >= 2 && offCount <= 3) {
+      violations.push({
+        type: 'SOFT',
+        nurseId,
+        nurseName,
+        date: weekStartDate,
+        message: `${nurseName} - ${weekStartDate} 주: OFF가 ${offCount}일 (권장 1일, 불가피한 경우 2-3일 허용)`,
+      });
+    } else if (offCount >= 4) {
+      violations.push({
+        type: 'HARD',
+        nurseId,
+        nurseName,
+        date: weekStartDate,
+        message: `${nurseName} - ${weekStartDate} 주: OFF가 ${offCount}일 (최대 3일 허용)`,
       });
     }
 

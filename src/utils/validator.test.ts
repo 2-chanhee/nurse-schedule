@@ -412,7 +412,7 @@ describe('validator.ts - validateWeeklyRest', () => {
     expect(violations[0].message).toContain('OFF가 0일');
   });
 
-  it('정상 케이스: 주휴 1일 + OFF 2일 = 3일 이상', () => {
+  it('SOFT 위반 케이스: 주휴 1일 + OFF 2일 (나이트 후 휴식 등으로 허용)', () => {
     const schedule: ScheduleCell[] = [
       { nurseId: 'nurse-1', date: '2024-01-07', shiftType: 'WEEK_OFF', isFixed: true },
       { nurseId: 'nurse-1', date: '2024-01-08', shiftType: 'OFF', isFixed: false },
@@ -425,7 +425,11 @@ describe('validator.ts - validateWeeklyRest', () => {
 
     const violations = validateWeeklyRest('nurse-1', '간호사1', schedule);
 
-    expect(violations).toHaveLength(0);
+    // OFF 2개는 SOFT 위반 (불가피한 경우 허용)
+    expect(violations).toHaveLength(1);
+    expect(violations[0].type).toBe('SOFT');
+    expect(violations[0].message).toContain('OFF가 2일');
+    expect(violations[0].message).toContain('2-3일 허용');
   });
 
   it('위반 케이스: 주휴만 있고 OFF 없음', () => {
@@ -538,8 +542,11 @@ describe('validator.ts - validateWeeklyRest', () => {
 
     const violations = validateWeeklyRest('nurse-1', '간호사1', schedule);
 
-    // 모든 주에서 규칙 만족
-    expect(violations).toHaveLength(0);
+    // 4주차에 OFF 2개로 인한 SOFT 위반 1개
+    expect(violations).toHaveLength(1);
+    expect(violations[0].type).toBe('SOFT');
+    expect(violations[0].message).toContain('OFF가 2일');
+    expect(violations[0].date).toBe('2024-01-28'); // 4주차 일요일
   });
 
   it('4주 중 1개 주만 위반 시 해당 주만 위반', () => {
