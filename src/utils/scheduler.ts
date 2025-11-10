@@ -79,6 +79,26 @@ function generateSimpleScheduleInternal(
     nightRestDaysRemaining[nurse.id] = 0;
   });
 
+  // 각 간호사의 월별 생휴 사용 횟수 (달력 월 기준: '2024-11' → 11월에 1회)
+  const menstrualByMonth: Record<string, Record<string, number>> = {};
+  nurses.forEach((nurse) => {
+    menstrualByMonth[nurse.id] = {};
+  });
+
+  // 🔴 중요: 고정 셀에서 생휴를 먼저 카운트 (같은 달에 2회 배정 방지)
+  fixedCells.forEach((cell) => {
+    if (cell.shiftType === 'MENSTRUAL') {
+      const yearMonth = cell.date.substring(0, 7); // '2025-11-16' → '2025-11'
+      if (!menstrualByMonth[cell.nurseId][yearMonth]) {
+        menstrualByMonth[cell.nurseId][yearMonth] = 0;
+      }
+      menstrualByMonth[cell.nurseId][yearMonth]++;
+    }
+  });
+
+  // 🔴 중요: 승인된 연차가 실제로는 생휴일 수 있으므로 체크 (없음, ANNUAL만 승인됨)
+  // 승인된 연차는 ANNUAL 타입이므로 생휴 카운트 불필요
+
   // 이전 4일 스케줄 정보를 사용하여 초기 상태 설정
   if (previousScheduleInfo) {
     const restTypes: ShiftType[] = ['OFF', 'WEEK_OFF', 'ANNUAL', 'MENSTRUAL'];
@@ -272,15 +292,46 @@ function generateSimpleScheduleInternal(
       }
 
       if (needsForceOff) {
+        // 주간 OFF 개수에 따라 휴일 타입 결정
+        let shiftType: ShiftType;
+        if (weeklyOffCount[nurse.id] === 0) {
+          // 주간 OFF 0개 → OFF 배정
+          shiftType = 'OFF';
+          weeklyOffCount[nurse.id]++;
+        } else {
+          // 주간 OFF 1개 이상 → 생휴 또는 연차 배정
+          const yearMonth = date.substring(0, 7);
+          // 🔴 중요: schedule에서 직접 카운트 (menstrualByMonth 변수 대신)
+          let menstrualCount = schedule.filter(
+            s => s.nurseId === nurse.id &&
+                 s.shiftType === 'MENSTRUAL' &&
+                 s.date.substring(0, 7) === yearMonth
+          ).length;
+
+          // 🔴 중요: 이전 5일 근무에서도 생휴 카운트 (달력 월 기준)
+          if (previousScheduleInfo) {
+            const previousCells = previousScheduleInfo.schedules[nurse.id] || [];
+            menstrualCount += previousCells.filter(
+              s => s.shiftType === 'MENSTRUAL' &&
+                   s.date.substring(0, 7) === yearMonth
+            ).length;
+          }
+
+          if (menstrualCount === 0) {
+            shiftType = 'MENSTRUAL';
+          } else {
+            shiftType = 'ANNUAL';
+          }
+        }
+
         schedule.push({
           nurseId: nurse.id,
           date,
-          shiftType: 'OFF',
+          shiftType,
           isFixed: false,
         });
         assignedNurses.add(nurse.id);
-        todayShift[nurse.id] = 'OFF';
-        weeklyOffCount[nurse.id]++;
+        todayShift[nurse.id] = shiftType;
         totalOffDays[nurse.id]++; // 휴일 카운트 증가
       }
     }
@@ -506,7 +557,7 @@ function generateSimpleScheduleInternal(
     // needsOff 그룹은 주간 OFF 규칙 준수를 위해 정렬하지 않음 (우선순위 최고)
     others.sort((a, b) => totalOffDays[a.id] - totalOffDays[b.id]);
 
-    // 주간 OFF 필요한 사람 우선 OFF 배정
+    // 주간 OFF 필요한 사람 우선 OFF 배정 (weeklyOffCount === 0)
     for (const nurse of needsOff) {
       schedule.push({
         nurseId: nurse.id,
@@ -519,19 +570,44 @@ function generateSimpleScheduleInternal(
       totalOffDays[nurse.id]++; // 휴일 카운트 증가
     }
 
-    // 나머지도 OFF 배정
-    // 주의: 이미 weeklyOffCount >= 1인 간호사도 OFF를 받을 수 있음
-    // 이 경우 validator가 위반으로 표시하고, 백트래킹이 재시도함
+    // 나머지 간호사는 생휴 또는 연차 배정 (weeklyOffCount >= 1)
+    // 주휴1일+OFF1일을 이미 받았으므로, 추가 휴일은 생휴 → 연차 순서로 처리
     for (const nurse of others) {
+      const yearMonth = date.substring(0, 7); // '2024-11-16' → '2024-11'
+      // 🔴 중요: schedule에서 직접 카운트 (menstrualByMonth 변수 대신)
+      let menstrualCount = schedule.filter(
+        s => s.nurseId === nurse.id &&
+             s.shiftType === 'MENSTRUAL' &&
+             s.date.substring(0, 7) === yearMonth
+      ).length;
+
+      // 🔴 중요: 이전 5일 근무에서도 생휴 카운트 (달력 월 기준)
+      if (previousScheduleInfo) {
+        const previousCells = previousScheduleInfo.schedules[nurse.id] || [];
+        menstrualCount += previousCells.filter(
+          s => s.shiftType === 'MENSTRUAL' &&
+               s.date.substring(0, 7) === yearMonth
+        ).length;
+      }
+
+      let shiftType: ShiftType;
+      if (menstrualCount === 0) {
+        // 이번 달 생휴 미사용 → 생휴 배정
+        shiftType = 'MENSTRUAL';
+      } else {
+        // 이번 달 생휴 이미 사용 → 연차 배정
+        shiftType = 'ANNUAL';
+      }
+
       schedule.push({
         nurseId: nurse.id,
         date,
-        shiftType: 'OFF',
-        isFixed: false,
+        shiftType,
+        isFixed: false, // 🔴 수정: 동적 배정 휴가는 재생성 시 새로 계산되어야 함
       });
-      todayShift[nurse.id] = 'OFF';
-      weeklyOffCount[nurse.id]++;
+      todayShift[nurse.id] = shiftType;
       totalOffDays[nurse.id]++; // 휴일 카운트 증가
+      // weeklyOffCount는 증가하지 않음 (MENSTRUAL, ANNUAL은 OFF가 아님)
     }
 
     // 6. 오늘 배정이 완료되면 lastShift, 연속 근무일, 나이트 블록 상태 업데이트
@@ -634,7 +710,7 @@ export function generateSimpleSchedule(
   fixedCells: ScheduleCell[] = [],
   previousScheduleInfo?: PreviousScheduleInfo,
   approvedAnnualLeaves?: Record<string, string[]>,
-  maxAttempts: number = 150 // OFF ≤ 2 제약 추가로 난이도 증가, 150회로 상향
+  maxAttempts: number = 200 // 백트래킹 횟수를 200회로 증가하여 성공률 향상
 ): ScheduleCell[] {
   // 백트래킹: 하드 제약 조건을 모두 만족할 때까지 여러 번 시도
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {

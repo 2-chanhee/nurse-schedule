@@ -296,8 +296,8 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
     // 로딩 시작
     setIsGenerating(true);
 
-    // 하드 제약 위반 없으면서 연차 승인을 최대화하는 스케줄 생성 (최대 10회 시도)
-    const MAX_ATTEMPTS = 10;
+    // 하드 제약 위반 없으면서 연차 승인을 최대화하는 스케줄 생성 (최대 200회 시도)
+    const MAX_ATTEMPTS = 200;
     let attempt = 0;
     let bestSchedule: ScheduleCell[] = [];
     let bestPreviousSchedule: Record<string, ScheduleCell[]> = {};
@@ -369,15 +369,13 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
         console.log(`📋 총 연차 신청: ${totalAnnualLeaves}개`);
       }
 
-      // 진행 상황 업데이트 (매 시도마다)
-      if (attempt % 10 === 0) {
-        setGenerationProgress(prev => ({
-          ...prev,
-          current: attempt,
-        }));
-        // UI 업데이트를 위해 약간의 지연
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
+      // 진행 상황 업데이트 (매 시도마다 실시간 표시)
+      setGenerationProgress(prev => ({
+        ...prev,
+        current: attempt,
+      }));
+      // UI 업데이트를 위해 약간의 지연
+      await new Promise(resolve => setTimeout(resolve, 0));
 
       // 각 연차를 하나씩 검증
       for (const annual of allAnnualLeaves) {
@@ -400,7 +398,7 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
           fixedCells,
           previousScheduleInfo,
           tempApproved,
-          10 // maxAttempts: 연차 검증은 빠르게 (10회)
+          50 // maxAttempts: 연차 검증 백트래킹 (50회)
         );
 
         // 제약조건 검증 (하드 제약만 체크, 이전 스케줄 포함)
@@ -445,7 +443,7 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
         fixedCells,
         previousScheduleInfo,
         approvedAnnualLeaves,
-        100 // maxAttempts: 최종 생성은 충분히 시도 (100회)
+        200 // maxAttempts: 최종 생성 백트래킹 (200회)
       );
 
       // 7. 최종 스케줄 검증 (이전 스케줄 포함)
@@ -487,7 +485,20 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
           noImprovementCount++; // 개선 없음
         }
       } else {
+        // 하드 제약 위반 - 로그 출력
         noImprovementCount++; // 하드 제약 위반
+
+        // 매 10번째 시도마다 상세 로그 출력 (너무 많으면 콘솔 느려짐)
+        if (attempt % 10 === 0 || attempt <= 3) {
+          console.log(`❌ ${attempt}번째 시도: 하드 제약 ${finalHardViolations.length}개 위반`);
+          // 처음 5개만 출력
+          finalHardViolations.slice(0, 5).forEach(v => {
+            console.log(`   - ${v.message}`);
+          });
+          if (finalHardViolations.length > 5) {
+            console.log(`   ... 외 ${finalHardViolations.length - 5}개 더`);
+          }
+        }
       }
 
       // 연속 3회 개선 없으면 조기 종료

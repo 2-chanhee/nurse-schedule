@@ -9,6 +9,7 @@ import {
   validateNightTwoWeekLimit,
   validateAnnualWeekOffConflict,
   validateOffDayBalance,
+  validateMenstrualLeaveLimit,
 } from './validator';
 import type { ScheduleCell, Nurse } from '../types';
 
@@ -412,7 +413,7 @@ describe('validator.ts - validateWeeklyRest', () => {
     expect(violations[0].message).toContain('OFF가 0일');
   });
 
-  it('SOFT 위반 케이스: 주휴 1일 + OFF 2일 (나이트 후 휴식 등으로 허용)', () => {
+  it('HARD 위반 케이스: 주휴 1일 + OFF 2일 (OFF는 정확히 1일 필요)', () => {
     const schedule: ScheduleCell[] = [
       { nurseId: 'nurse-1', date: '2024-01-07', shiftType: 'WEEK_OFF', isFixed: true },
       { nurseId: 'nurse-1', date: '2024-01-08', shiftType: 'OFF', isFixed: false },
@@ -425,11 +426,11 @@ describe('validator.ts - validateWeeklyRest', () => {
 
     const violations = validateWeeklyRest('nurse-1', '간호사1', schedule);
 
-    // OFF 2개는 SOFT 위반 (불가피한 경우 허용)
+    // OFF 2개는 HARD 위반 (정확히 1일 필요)
     expect(violations).toHaveLength(1);
-    expect(violations[0].type).toBe('SOFT');
+    expect(violations[0].type).toBe('HARD');
     expect(violations[0].message).toContain('OFF가 2일');
-    expect(violations[0].message).toContain('2-3일 허용');
+    expect(violations[0].message).toContain('정확히 1일 필요');
   });
 
   it('위반 케이스: 주휴만 있고 OFF 없음', () => {
@@ -463,9 +464,10 @@ describe('validator.ts - validateWeeklyRest', () => {
 
     const violations = validateWeeklyRest('nurse-1', '간호사1', schedule);
 
-    expect(violations.length).toBeGreaterThan(0);
-    expect(violations[0].type).toBe('HARD');
-    expect(violations[0].message).toContain('주휴일이 0일');
+    // 주휴일 0일 + OFF 2일 → 2개 위반 (주휴일 누락, OFF 2개)
+    expect(violations).toHaveLength(2);
+    expect(violations.some(v => v.message.includes('주휴일이 0일'))).toBe(true);
+    expect(violations.some(v => v.message.includes('OFF가 2일'))).toBe(true);
   });
 
   it('정상 케이스: 주휴 1일 + OFF 1일 + 연차 1일 = 3일', () => {
@@ -531,10 +533,10 @@ describe('validator.ts - validateWeeklyRest', () => {
     schedule.push({ nurseId: 'nurse-1', date: '2024-01-26', shiftType: 'D', isFixed: false });
     schedule.push({ nurseId: 'nurse-1', date: '2024-01-27', shiftType: 'D', isFixed: false });
 
-    // 4주차: 2024-01-28(일) ~ 02-03(토), 주휴(일) + OFF 2일(화, 금)
+    // 4주차: 2024-01-28(일) ~ 02-03(토), 주휴(일) + OFF 1일(금)
     schedule.push({ nurseId: 'nurse-1', date: '2024-01-28', shiftType: 'WEEK_OFF', isFixed: true });
     schedule.push({ nurseId: 'nurse-1', date: '2024-01-29', shiftType: 'D', isFixed: false });
-    schedule.push({ nurseId: 'nurse-1', date: '2024-01-30', shiftType: 'OFF', isFixed: false });
+    schedule.push({ nurseId: 'nurse-1', date: '2024-01-30', shiftType: 'D', isFixed: false });
     schedule.push({ nurseId: 'nurse-1', date: '2024-01-31', shiftType: 'D', isFixed: false });
     schedule.push({ nurseId: 'nurse-1', date: '2024-02-01', shiftType: 'D', isFixed: false });
     schedule.push({ nurseId: 'nurse-1', date: '2024-02-02', shiftType: 'OFF', isFixed: false });
@@ -542,11 +544,8 @@ describe('validator.ts - validateWeeklyRest', () => {
 
     const violations = validateWeeklyRest('nurse-1', '간호사1', schedule);
 
-    // 4주차에 OFF 2개로 인한 SOFT 위반 1개
-    expect(violations).toHaveLength(1);
-    expect(violations[0].type).toBe('SOFT');
-    expect(violations[0].message).toContain('OFF가 2일');
-    expect(violations[0].date).toBe('2024-01-28'); // 4주차 일요일
+    // 모든 주가 정상 (각 주마다 주휴 1일 + OFF 1일)
+    expect(violations).toHaveLength(0);
   });
 
   it('4주 중 1개 주만 위반 시 해당 주만 위반', () => {
@@ -1106,5 +1105,82 @@ describe('validator.ts - validateOffDayBalance', () => {
     const violations = validateOffDayBalance(schedule, nurses);
 
     expect(violations).toHaveLength(0); // 빈 스케줄이면 모두 0일이므로 위반 없음
+  });
+});
+
+describe('validateMenstrualLeaveLimit', () => {
+  it('정상 케이스: 같은 달에 생휴 1회', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-11-05', shiftType: 'MENSTRUAL', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-08', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-12', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateMenstrualLeaveLimit('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(0);
+  });
+
+  it('정상 케이스: 다른 달에 각각 생휴 1회 (11월, 12월)', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-11-20', shiftType: 'MENSTRUAL', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-22', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-12-05', shiftType: 'MENSTRUAL', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-12-08', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateMenstrualLeaveLimit('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(0);
+  });
+
+  it('HARD 위반: 같은 달에 생휴 2회', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-11-05', shiftType: 'MENSTRUAL', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-08', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-20', shiftType: 'MENSTRUAL', isFixed: false },
+    ];
+
+    const violations = validateMenstrualLeaveLimit('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].type).toBe('HARD');
+    expect(violations[0].message).toContain('2024-11 월');
+    expect(violations[0].message).toContain('생휴 2회');
+    expect(violations[0].message).toContain('2024-11-05, 2024-11-20');
+  });
+
+  it('HARD 위반: 같은 달에 생휴 3회', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-11-05', shiftType: 'MENSTRUAL', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-12', shiftType: 'MENSTRUAL', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-20', shiftType: 'MENSTRUAL', isFixed: false },
+    ];
+
+    const violations = validateMenstrualLeaveLimit('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].type).toBe('HARD');
+    expect(violations[0].message).toContain('생휴 3회');
+  });
+
+  it('엣지 케이스: 생휴 없음', () => {
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-11-05', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-08', shiftType: 'E', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-12', shiftType: 'OFF', isFixed: false },
+    ];
+
+    const violations = validateMenstrualLeaveLimit('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(0);
+  });
+
+  it('엣지 케이스: 빈 스케줄', () => {
+    const schedule: ScheduleCell[] = [];
+
+    const violations = validateMenstrualLeaveLimit('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(0);
   });
 });

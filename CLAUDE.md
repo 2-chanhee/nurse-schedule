@@ -1147,20 +1147,18 @@ src/
   - 배정 순서만 바꿔도 제약 조건 만족도 유지하면서 실무 적합성 향상
   - 나이트 우선 배정으로 주휴일 활용 극대화
 
-#### 30. 주간 OFF 제한 검증 추가 (2025-11-10)
+#### 30. 주간 OFF 정확히 1개 규칙 구현 (2025-11-10)
 - **요구사항**: 사용자 피드백 "근데 OFF가 2개인 사람이 있네?"
   - 기본 휴일: 1 WEEK_OFF + 1 OFF = 2일
   - 문제: 일부 간호사가 OFF 2-3개 받아서 총 휴일 3-4일
-- **수학적 제약 분석**:
-  - 15명 × 28일 = 420 nurse-days
-  - 9 shifts/day × 28일 = 252 shifts
-  - 총 휴일: 420 - 252 = 168 days
-  - **평균 주당 휴일: 2.8일** → 모든 간호사가 정확히 2일 휴식은 불가능
-- **해결 방안**:
+- **해결 방안**: ✅ **OFF는 정확히 1개만 배정**
   - OFF === 0: HARD 위반 (필수 휴식 미확보)
-  - OFF === 1: OK (이상적) ✅
-  - OFF === 2-3: SOFT 위반 (나이트 후 휴식 등으로 불가피, 허용)
-  - OFF >= 4: HARD 위반 (과도한 휴식)
+  - **OFF === 1: OK (이상적)** ✅
+  - **OFF >= 2: HARD 위반 (초과 배정)**
+- **구현 방법**:
+  - Scheduler: `weeklyOffCount[nurse.id] >= 1`이면 추가 OFF 배정 안 함
+  - 나이트 후 휴식: OFF 대신 생휴/연차 배정 (생휴/연차도 휴식으로 인정)
+  - Validator: `offCount >= 2`이면 HARD 위반
 - **구현**:
   - src/utils/validator.ts:215-245 (주간 OFF 검증 로직 추가)
   - src/utils/scheduler.ts:637 (백트래킹 maxAttempts 100 → 150회로 증가)
@@ -1179,6 +1177,196 @@ src/
   - SOFT 위반을 활용하여 이상적이지 않지만 허용 가능한 범위 정의
   - 평균값 계산으로 문제의 근본적 한계 이해 (2.8일 평균 → 모두 2일은 불가능)
   - 백트래킹 시도 횟수 조정으로 성공률 향상 (100 → 150회)
+
+#### 31. 생휴 월별 1회 제한 검증 추가 (2025-11-11)
+- **문제 발견**: 사용자 피드백 "생휴는 1달에 1회라고 했는데, 1달 내에 2번을 사용한 간호사가 있다."
+- **원인 분석**:
+  - scheduler.ts에는 생휴 추적 로직 있음 (menstrualByMonth)
+  - **validator.ts에 생휴 검증 로직 없음** → 위반 감지 불가
+- **해결**:
+  1. **검증 함수 추가** (src/utils/validator.ts:645-686):
+     - `validateMenstrualLeaveLimit` 함수 구현
+     - 각 간호사별로 달력 월(YYYY-MM)별 생휴 카운트
+     - 같은 달에 2회 이상이면 HARD 위반
+  2. **validateSchedule 호출 추가** (src/utils/validator.ts:803-807):
+     - 휴일 공평 분배 검증 다음에 생휴 검증 호출
+  3. **테스트 6개 추가** (src/utils/validator.test.ts:1110-1185):
+     - 정상: 같은 달에 1회
+     - 정상: 다른 달에 각각 1회
+     - HARD 위반: 같은 달에 2회
+     - HARD 위반: 같은 달에 3회
+     - 엣지: 생휴 없음
+     - 엣지: 빈 스케줄
+- **테스트 결과**:
+  - ✅ 전체 102개 테스트 통과 (96개 → 102개)
+  - ✅ 빌드 성공 (478ms)
+- **문서 업데이트**:
+  - SPEC.md: 하드 제약 10번 추가 (생휴 월별 1회 제한)
+  - SPEC.md: 소프트 제약에서 주간 OFF 제한 삭제 (하드 제약이므로)
+- **효과**:
+  - 생휴 월별 1회 제한을 확실하게 검증
+  - UI에서 위반 시 명확한 메시지 표시 ("간호사X - 2024-11 월: 생휴 2회 사용 (최대 1회)")
+- **교훈**:
+  - **스케줄러에 추적 로직이 있어도 검증 로직이 없으면 위반 감지 불가**
+  - 제약 조건은 반드시 검증 함수로 명시적으로 검증해야 함
+  - 테스트 코드는 정상 케이스 + 위반 케이스 + 엣지 케이스 모두 포함
+
+#### 32. 생휴 카운팅 로직 수정 - schedule 배열 직접 카운트 (2025-11-11)
+- **문제 발견**: 사용자 피드백 "첫 번째 생성은 성공하는데, 재생성하면 생휴가 같은 달에 2번 배정됨"
+- **근본 원인 분석**:
+  1. **추적 변수 stale state 문제**:
+     - `menstrualByMonth` 변수는 초기화 시 fixedCells만 카운트
+     - 스케줄 생성 루프에서 MENSTRUAL 배정 시 변수 업데이트 안 됨
+     - 같은 달에 두 번째 배정 시 변수 값은 여전히 0 → 중복 배정 발생
+  2. **첫 생성 vs 재생성 차이**:
+     - 첫 생성: fixedCells = [] → menstrualByMonth 정확
+     - 재생성: fixedCells에 이전 MENSTRUAL 포함 → 카운트 시작값이 이미 1
+     - 하지만 루프에서 변수 업데이트 안 하므로 결국 중복 발생
+- **해결** (src/utils/scheduler.ts:305-314, 568-581):
+  - 추적 변수 대신 **schedule 배열에서 직접 카운트**
+  ```typescript
+  // OLD (buggy):
+  const menstrualCount = menstrualByMonth[nurse.id][yearMonth] || 0;
+  if (menstrualCount === 0) {
+    shiftType = 'MENSTRUAL';
+    menstrualByMonth[nurse.id][yearMonth] = 1; // Never read again!
+  }
+
+  // NEW (correct):
+  const menstrualCount = schedule.filter(
+    s => s.nurseId === nurse.id &&
+         s.shiftType === 'MENSTRUAL' &&
+         s.date.substring(0, 7) === yearMonth
+  ).length;
+  if (menstrualCount === 0) {
+    shiftType = 'MENSTRUAL';
+    // No need to update tracking variable
+  }
+  ```
+- **적용 위치**:
+  - Line 305-309: 강제 OFF 배정 (주간 OFF ≥ 1일 때 생휴 선택)
+  - Line 568-572: 나머지 간호사 휴가 배정
+- **테스트 결과**:
+  - ✅ 전체 102개 테스트 통과
+  - ✅ 빌드 성공
+- **효과**:
+  - 첫 생성/재생성 모두 정확한 생휴 카운트
+  - 추적 변수 동기화 문제 완전 해결
+- **교훈**:
+  - **Computed value > Tracking variable**: 상태는 가능한 계산으로 얻기 (Single Source of Truth)
+  - 추적 변수는 stale state 문제 발생 가능 → 실시간 카운트가 더 안전
+  - 디버깅 시 "첫 번째는 되는데 두 번째는 안 됨" → 상태 초기화/업데이트 문제 의심
+
+#### 33. 동적 배정 휴가 isFixed 수정 - 재생성 중복 방지 (2025-11-11)
+- **문제 발견**: 위의 생휴 카운팅 로직 수정 후에도 여전히 재생성 시 중복 배정 발생
+- **근본 원인**:
+  - 자동 배정된 MENSTRUAL/ANNUAL을 `isFixed: true`로 설정 (src/utils/scheduler.ts:587)
+  - 재생성 시 이전 MENSTRUAL이 `fixedCells`에 포함됨
+  - schedule 배열 시작 시 fixedCells를 복사하므로 이미 1개 포함
+  - 새로운 MENSTRUAL을 또 배정 → 같은 달에 2번 배정!
+- **해결** (src/utils/scheduler.ts:587):
+  ```typescript
+  // 변경 전
+  isFixed: true,  // ❌ 문제
+
+  // 변경 후
+  isFixed: false, // ✅ 동적 배정 휴가는 재생성 시 새로 계산
+  ```
+- **중요한 구분**:
+  - **고정 셀** (isFixed: true):
+    - 주휴일 (WEEK_OFF): 요일 지정으로 자동 배정
+    - 연차 (ANNUAL): 사용자가 간호사 관리에서 신청한 것
+    - 우클릭으로 수동 고정한 셀
+  - **동적 배정 셀** (isFixed: false):
+    - 자동 배정된 MENSTRUAL/ANNUAL (스케줄 생성 로직)
+    - 모든 근무 타입 (D, M, E, N)
+    - 일반 OFF
+- **테스트 결과**:
+  - ✅ 전체 102개 테스트 통과
+  - ✅ 빌드 성공
+  - ✅ 첫 생성 + 여러 번 재생성 모두 정상 작동
+- **효과**:
+  - 재생성 시 생휴 중복 배정 완전 해결
+  - 동적 배정 휴가는 매번 새로 계산되어 제약 조건 만족
+- **교훈**:
+  - **isFixed의 의미**: "사용자 의도" 또는 "규칙으로 고정된 값" (시스템이 자동 배정한 것은 고정 아님)
+  - 재생성 시 동작을 항상 고려 (초기 생성 + 재생성 모두 테스트)
+  - 두 가지 버그가 동시에 있었음 (카운팅 로직 + isFixed) → 둘 다 수정 필요
+
+#### 34. 연차 신청 날짜 범위 제한 (2025-11-11)
+- **요구사항**: "간호사관리탭에서 연차신청할때, 우리가 기준으로 잡은 시작일, 종료일 범위 안에 있어야만 허용되게 해줘"
+- **구현** (src/components/NurseManagement.tsx):
+  1. **날짜 범위 로드** (line 17-27):
+     - localStorage에서 스케줄 날짜 범위 읽기 (DateRangeStorage)
+     - 컴포넌트 마운트 시 자동 로드
+  2. **검증 로직 추가** (line 99-105):
+     - 연차 신청 시 날짜 범위 검증
+     - 범위 밖 날짜 입력 시 경고 메시지 표시
+     - "❌ 연차는 스케줄 범위(YYYY-MM-DD ~ YYYY-MM-DD) 내에서만 신청 가능합니다."
+  3. **date picker 제한** (line 236-237):
+     - `min={scheduleDateRange?.start}`
+     - `max={scheduleDateRange?.end}`
+     - UI에서 범위 밖 날짜 선택 차단
+- **동작 방식**:
+  1. 스케줄 관리 탭에서 시작일/종료일 설정
+  2. 간호사 관리 탭으로 이동하면 자동으로 날짜 범위 로드
+  3. 연차 신청 시:
+     - **UI 제한**: date picker가 범위 밖 날짜 선택 불가
+     - **검증 로직**: 범위 밖 날짜 입력 시 경고 메시지
+     - **주휴일 검증**: 기존처럼 주휴일 겹침도 차단
+- **테스트 결과**:
+  - ✅ 전체 102개 테스트 통과
+  - ✅ 빌드 성공
+- **효과**:
+  - 스케줄 범위 밖 연차 신청 원천 차단
+  - 사용자 실수 방지 (범위 밖 날짜는 아예 선택 불가)
+  - 일관성 향상 (스케줄 날짜 범위와 연차 신청 날짜 자동 동기화)
+- **교훈**:
+  - **UI 제한 + 검증 로직** 이중 방어로 안전성 확보
+  - localStorage를 활용한 탭 간 데이터 공유
+  - date picker의 min/max 속성 활용으로 UX 개선
+
+#### 35. 이전 5일 근무의 생휴를 메인 스케줄 카운트에 반영 (2025-11-11)
+- **문제 발견**: 사용자 피드백 "이전 근무에 생휴가 있는 경우, 1달 기준으로 하기 때문에, 우리가 실제로 짜는 근무에도 반영이 되어야 해"
+- **문제 상황 예시**:
+  - 이전 근무: 11월 20일에 간호사 A가 생휴 사용
+  - 메인 스케줄: 11월 21일부터 시작
+  - **버그**: 메인 스케줄에서 11월에 생휴를 또 배정 → 같은 달에 2번!
+- **원인**:
+  - 생휴 카운트 시 `schedule` 배열만 체크
+  - `previousScheduleInfo`에 있는 생휴는 카운트하지 않음
+  - 달력 월 기준이므로 이전 근무와 메인 스케줄이 같은 달에 걸치면 문제 발생
+- **해결** (src/utils/scheduler.ts:311-318, 584-591):
+  ```typescript
+  // 기존: schedule 배열에서만 카운트
+  let menstrualCount = schedule.filter(
+    s => s.nurseId === nurse.id &&
+         s.shiftType === 'MENSTRUAL' &&
+         s.date.substring(0, 7) === yearMonth
+  ).length;
+
+  // 추가: 이전 5일 근무에서도 카운트 (달력 월 기준)
+  if (previousScheduleInfo) {
+    const previousCells = previousScheduleInfo.schedules[nurse.id] || [];
+    menstrualCount += previousCells.filter(
+      s => s.shiftType === 'MENSTRUAL' &&
+           s.date.substring(0, 7) === yearMonth
+    ).length;
+  }
+  ```
+- **적용 위치**:
+  - Line 311-318: 강제 OFF 배정 시 생휴 선택
+  - Line 584-591: 나머지 간호사 휴가 배정 시 생휴 선택
+- **테스트 결과**:
+  - ✅ 전체 102개 테스트 통과
+  - ✅ 빌드 성공
+- **효과**:
+  - 이전 근무와 메인 스케줄이 같은 달에 걸쳐도 생휴 1회 제한 정확히 적용
+  - 달력 월 기준 생휴 제한의 완전한 구현
+- **교훈**:
+  - **달력 월 기준 제약은 스케줄 경계를 넘어 적용됨**
+  - 이전 스케줄 정보를 제약 검증뿐 아니라 배정 로직에도 활용해야 함
+  - "이전 근무"는 단순 연속성 체크용이 아니라 모든 월별 제약의 기준점
 
 ### When Starting a New Session
 1. Read `SPEC.md` to understand project requirements and current implementation status

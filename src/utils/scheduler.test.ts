@@ -287,15 +287,18 @@ describe('scheduler.ts - generateSimpleSchedule', () => {
     expect(nurse2Annual2?.isFixed).toBe(true);
   });
 
-  it('연차 신청이 없으면 정상 스케줄 생성', () => {
-    const nurses = createTestNurses(5, false); // withAnnual=false
+  it('연차 신청이 없어도 스케줄 생성 가능 (강제 연차 자동 배정)', () => {
+    const nurses = createTestNurses(15, false); // withAnnual=false
 
-    // 모든 간호사 연차 없음
+    // 모든 간호사 연차 신청 없음
     const schedule = generateSimpleSchedule(nurses, DEFAULT_START_DATE, DEFAULT_END_DATE);
 
-    // ANNUAL 타입이 하나도 없어야 함 (주휴일만 자동 배정)
-    const annualCells = schedule.filter(s => s.shiftType === 'ANNUAL');
-    expect(annualCells.length).toBe(0);
+    // 스케줄이 정상적으로 생성되어야 함
+    expect(schedule.length).toBeGreaterThan(0);
+
+    // 강제 연차가 자동 배정되어야 함 (수학적 필요: 주휴1일+OFF1일 후 추가 휴일)
+    const autoAnnualCells = schedule.filter(s => s.shiftType === 'ANNUAL');
+    expect(autoAnnualCells.length).toBeGreaterThan(0);
   });
 
   it('여러 간호사가 같은 날 연차 신청 가능', () => {

@@ -212,35 +212,25 @@ export function validateWeeklyRest(
       });
     }
 
-    // OFF 검증 (사용자 요구사항: 주간 OFF는 1-3개 허용, 4개 이상은 위반)
-    // 수학적 제약: 평균 주당 휴일 2.8일 → 모든 간호사가 OFF ≤ 2는 불가능
+    // OFF 검증 (사용자 요구사항: 주간 OFF는 정확히 1일)
     // - offCount === 0: HARD (필수 휴식 미확보)
-    // - offCount === 1: OK (이상적)
-    // - offCount === 2-3: SOFT (나이트 후 휴식 등으로 불가피)
-    // - offCount >= 4: HARD (과도한 휴식)
+    // - offCount === 1: OK (정상)
+    // - offCount >= 2: HARD (과도한 휴식)
     if (offCount === 0) {
       violations.push({
         type: 'HARD',
         nurseId,
         nurseName,
         date: weekStartDate,
-        message: `${nurseName} - ${weekStartDate} 주: OFF가 ${offCount}일 (최소 1일 필요)`,
+        message: `${nurseName} - ${weekStartDate} 주: OFF가 ${offCount}일 (정확히 1일 필요)`,
       });
-    } else if (offCount >= 2 && offCount <= 3) {
-      violations.push({
-        type: 'SOFT',
-        nurseId,
-        nurseName,
-        date: weekStartDate,
-        message: `${nurseName} - ${weekStartDate} 주: OFF가 ${offCount}일 (권장 1일, 불가피한 경우 2-3일 허용)`,
-      });
-    } else if (offCount >= 4) {
+    } else if (offCount >= 2) {
       violations.push({
         type: 'HARD',
         nurseId,
         nurseName,
         date: weekStartDate,
-        message: `${nurseName} - ${weekStartDate} 주: OFF가 ${offCount}일 (최대 3일 허용)`,
+        message: `${nurseName} - ${weekStartDate} 주: OFF가 ${offCount}일 (정확히 1일 필요)`,
       });
     }
 
@@ -653,6 +643,49 @@ export function validateOffDayBalance(
 }
 
 /**
+ * 생휴 월별 1회 제한 검증
+ * 각 간호사는 달력 월 기준으로 생휴를 최대 1회만 사용 가능
+ * 예: 2024-11-05, 2024-11-20 → 같은 달(2024-11)에 2회 → HARD 위반
+ */
+export function validateMenstrualLeaveLimit(
+  nurseId: string,
+  nurseName: string,
+  schedule: ScheduleCell[]
+): Violation[] {
+  const violations: Violation[] = [];
+
+  // 해당 간호사의 모든 생휴 셀 필터링
+  const menstrualCells = schedule.filter(
+    (cell) => cell.nurseId === nurseId && cell.shiftType === 'MENSTRUAL'
+  );
+
+  // 달력 월별 생휴 횟수 계산
+  const menstrualByMonth: Record<string, string[]> = {};
+  menstrualCells.forEach((cell) => {
+    const yearMonth = cell.date.substring(0, 7); // '2024-11-16' → '2024-11'
+    if (!menstrualByMonth[yearMonth]) {
+      menstrualByMonth[yearMonth] = [];
+    }
+    menstrualByMonth[yearMonth].push(cell.date);
+  });
+
+  // 같은 달에 2회 이상 사용한 경우 위반
+  Object.entries(menstrualByMonth).forEach(([yearMonth, dates]) => {
+    if (dates.length >= 2) {
+      violations.push({
+        type: 'HARD',
+        nurseId,
+        nurseName,
+        date: dates[0], // 첫 번째 날짜
+        message: `${nurseName} - ${yearMonth} 월: 생휴 ${dates.length}회 사용 (최대 1회) - 날짜: ${dates.join(', ')}`,
+      });
+    }
+  });
+
+  return violations;
+}
+
+/**
  * 전체 스케줄 검증
  */
 export function validateSchedule(
@@ -766,6 +799,12 @@ export function validateSchedule(
   // 휴일 공평 분배 검증 (HARD 제약, 현재 4주만)
   const offDayBalanceViolations = validateOffDayBalance(schedule, nurses);
   violations.push(...offDayBalanceViolations);
+
+  // 생휴 월별 1회 제한 검증 (HARD 제약)
+  nurses.forEach((nurse) => {
+    const menstrualLimitViolations = validateMenstrualLeaveLimit(nurse.id, nurse.name, schedule);
+    violations.push(...menstrualLimitViolations);
+  });
 
   // 🚧 미구현 - 비권장 패턴 검증 (SOFT)
   // nurses.forEach((nurse) => {
