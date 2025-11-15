@@ -1368,6 +1368,88 @@ src/
   - 이전 스케줄 정보를 제약 검증뿐 아니라 배정 로직에도 활용해야 함
   - "이전 근무"는 단순 연속성 체크용이 아니라 모든 월별 제약의 기준점
 
+#### 36. 쉬는날 신청 시스템 구현 - 연차 신청 대체 (2025-11-15)
+- **요구사항**: 연차 신청 → 쉬는날 신청으로 변경, 자동 타입 분배 (주휴OFF > OFF > 연차OFF)
+- **핵심 변경**:
+  1. **타입 시스템 변경**:
+     - `annualLeaveDates: string[]` → `requestedOffDates: RequestedOffDate[]`
+     - `RequestedOffDate` 인터페이스: `{ date: string, type: 'WEEK_OFF' | 'OFF' | 'ANNUAL' }`
+     - `ShiftRestriction` 타입 추가: `'NONE' | 'D_ONLY' | 'E_ONLY' | 'N_ONLY'`
+  2. **자동 타입 결정 로직** (src/components/NurseManagement.tsx:93-167):
+     - 주휴일과 같은 요일 → `WEEK_OFF`
+     - 해당 주에 이미 OFF 있음 → `ANNUAL`
+     - 해당 주에 OFF 없음 → `OFF`
+  3. **UI 개선** (src/components/NurseManagement.tsx:276-307):
+     - 날짜 선택 시 로컬 state에 저장
+     - "추가" 버튼 클릭으로 명시적 추가
+     - 색상별 태그 표시 (주휴OFF: 노란색, OFF: 파란색, 연차OFF: 초록색)
+  4. **근무 제한 기능** (src/utils/validator.ts:695-727):
+     - `validateShiftRestriction` 함수 추가
+     - D_ONLY, E_ONLY, N_ONLY 제한 검증 (HARD 제약)
+- **대규모 마이그레이션**:
+  - 15개 파일 수정 (types, constants, components, utils, tests)
+  - 모든 `annualLeaveDates` → `requestedOffDates` 변경
+  - 모든 `string[]` → `RequestedOffDate[]` 타입 변경
+  - 50+ 곳의 타입 오류 수정
+- **UI/UX 개선**:
+  - 날짜 선택 후 "추가" 버튼으로 명시적 추가
+  - 여러 날짜 선택 가능 (이전: 1개만)
+  - 자동 타입 결정 후 alert로 사용자에게 알림
+- **테스트 결과**:
+  - ✅ 빌드 성공 (498ms)
+  - TypeScript 컴파일 + Vite 빌드 모두 통과
+- **효과**:
+  - 쉬는날 신청이 주휴일, OFF, 연차로 자동 분류됨
+  - 사용자가 복잡한 규칙을 이해하지 않아도 자동으로 적절한 타입 배정
+  - 근무 제한 기능으로 특정 근무만 가능한 간호사 관리 가능
+- **교훈**:
+  - **대규모 타입 변경은 점진적으로**: 한 번에 모든 파일을 수정하려 하지 말고, 빌드 오류를 하나씩 해결
+  - **타입 안전성 최우선**: `as any` 대신 명시적 타입 선언 사용
+  - **UI와 로직 분리**: 자동 타입 결정 로직은 백엔드에 두고, UI는 결과만 표시
+  - **사용자 피드백 중요**: "여러 날짜를 선택할 수 없다"는 피드백으로 UI 개선
+  - **backward compatibility**: 기존 localStorage 데이터와 호환성 유지 (null-safe 기본값)
+
+#### 37. 쉬는날 신청 단순화 - 타입 결정 로직 제거 (2025-11-15)
+- **문제**: 36번의 접근이 간호사 입장에서 복잡함 - "어디서 연차인지, OFF인지 결정하게 하면 안되고, 스케줄 생성할때 결정해야해"
+- **핵심 변경**: UI에서 타입을 결정하지 않고, 스케줄 생성 시 시스템이 자동 결정
+  1. **타입 시스템 변경**:
+     - `RequestedOffDate` 인터페이스 삭제
+     - `requestedOffDates: RequestedOffDate[]` → `requestedOffDates: string[]` (날짜만 저장)
+  2. **NurseManagement.tsx 단순화**:
+     - 타입 결정 로직 모두 제거 (src/components/NurseManagement.tsx:96-127)
+     - 간호사는 그냥 날짜만 선택하고 "추가" 버튼 클릭
+     - UI에서 색상별 태그 제거, 날짜만 표시
+  3. **scheduler.ts 타입 자동 결정** (src/utils/scheduler.ts:235-258):
+     - 주휴일(WEEK_OFF): 시스템이 요일 기준으로 자동 배정
+     - 신청한 쉬는날: 모두 ANNUAL로 배정
+     - 일반 OFF: 시스템이 제약 조건 만족을 위해 강제/자동 배정
+  4. **localStorage 호환성 처리**:
+     - App.tsx: 로드 시 기존 `{date, type}` 객체 → 문자열로 자동 변환 (line 12-20)
+     - NurseManagement.tsx: 렌더링/추가/삭제 시 타입 변환 처리 (4곳 수정)
+- **수정 범위**:
+  - 타입 정의: src/types.ts (RequestedOffDate 삭제)
+  - 컴포넌트: src/components/NurseManagement.tsx, ScheduleView.tsx, App.tsx
+  - 로직: src/utils/scheduler.ts, validator.ts
+  - 테스트: scheduler.test.ts, validator.test.ts, storage.test.ts
+- **테스트 결과**:
+  - ✅ 빌드 성공 (504ms)
+  - ✅ 기존 localStorage 데이터 호환성 확보
+- **최종 동작 방식**:
+  1. **간호사 관리 탭**: 간호사가 "쉬고 싶은 날짜"만 선택하여 신청
+  2. **스케줄 생성 시**:
+     - 주휴일: 시스템이 자동으로 WEEK_OFF 배정
+     - 신청한 쉬는날: 모두 ANNUAL로 배정
+     - 일반 OFF: 시스템이 제약 조건 만족을 위해 자동 배정
+- **효과**:
+  - 간호사 입장에서 훨씬 간단함 (타입 고민 불필요)
+  - 복잡한 타입 결정 로직을 시스템이 담당
+  - 기존 데이터와 호환되어 데이터 손실 없음
+- **교훈**:
+  - **사용자 관점 우선**: 간호사는 "쉬고 싶은 날짜"만 알면 됨, 타입 구분은 시스템 내부 문제
+  - **UI와 로직 분리**: UI는 최대한 단순하게, 복잡한 로직은 백엔드에서 처리
+  - **backward compatibility**: localStorage 데이터 형식 변경 시 기존 데이터 자동 변환 필수
+  - **대규모 리팩토링 시**: 타입 오류를 하나씩 해결하며 점진적으로 수정
+
 ### When Starting a New Session
 1. Read `SPEC.md` to understand project requirements and current implementation status
 2. Read `CLAUDE.md` (this file) to understand working style

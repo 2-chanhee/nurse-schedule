@@ -10,6 +10,7 @@ import {
   validateAnnualWeekOffConflict,
   validateOffDayBalance,
   validateMenstrualLeaveLimit,
+  validateConsecutiveOffDays,
 } from './validator';
 import type { ScheduleCell, Nurse } from '../types';
 
@@ -262,15 +263,15 @@ describe('validator.ts - validateSchedule', () => {
     ];
 
     const nurses: Nurse[] = [
-      { id: 'n1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
-      { id: 'n2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
-      { id: 'n3', name: '간호사3', weekOffDay: 'TUE', annualLeaveDates: [] },
-      { id: 'n4', name: '간호사4', weekOffDay: 'WED', annualLeaveDates: [] },
-      { id: 'n5', name: '간호사5', weekOffDay: 'THU', annualLeaveDates: [] },
-      { id: 'n6', name: '간호사6', weekOffDay: 'FRI', annualLeaveDates: [] },
-      { id: 'n7', name: '간호사7', weekOffDay: 'SAT', annualLeaveDates: [] },
-      { id: 'n8', name: '간호사8', weekOffDay: 'SUN', annualLeaveDates: [] },
-      { id: 'n9', name: '간호사9', weekOffDay: 'MON', annualLeaveDates: [] },
+      { id: 'n1', name: '간호사1', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'n2', name: '간호사2', weekOffDay: 'MON', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'n3', name: '간호사3', weekOffDay: 'TUE', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'n4', name: '간호사4', weekOffDay: 'WED', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'n5', name: '간호사5', weekOffDay: 'THU', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'n6', name: '간호사6', weekOffDay: 'FRI', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'n7', name: '간호사7', weekOffDay: 'SAT', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'n8', name: '간호사8', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'n9', name: '간호사9', weekOffDay: 'MON', requestedOffDates: [], restrictedShift: 'NONE' as const },
     ];
 
     const { violations, dailyStaffStatus } = validateSchedule(schedule, nurses);
@@ -293,9 +294,9 @@ describe('validator.ts - validateSchedule', () => {
     ];
 
     const nurses: Nurse[] = [
-      { id: 'n1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
-      { id: 'n2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
-      { id: 'n3', name: '간호사3', weekOffDay: 'TUE', annualLeaveDates: [] },
+      { id: 'n1', name: '간호사1', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'n2', name: '간호사2', weekOffDay: 'MON', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'n3', name: '간호사3', weekOffDay: 'TUE', requestedOffDates: [], restrictedShift: 'NONE' as const },
     ];
 
     const { violations, dailyStaffStatus } = validateSchedule(schedule, nurses);
@@ -343,7 +344,7 @@ describe('validator.ts - validateSchedule', () => {
       id: `n${i + 1}`,
       name: `간호사${i + 1}`,
       weekOffDay: (['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const)[i % 7],
-      annualLeaveDates: [],
+      requestedOffDates: [], restrictedShift: 'NONE' as const,
     }));
 
     const { violations, dailyStaffStatus } = validateSchedule(schedule, nurses);
@@ -859,7 +860,11 @@ describe('validator.ts - validateAnnualWeekOffConflict', () => {
       id: 'nurse-1',
       name: '간호사1',
       weekOffDay: 'SUN', // 일요일 주휴
-      annualLeaveDates: ['2024-01-08', '2024-01-15'], // 월요일 연차
+      requestedOffDates: [
+        '2024-01-08', // 월요일 연차
+        '2024-01-15'
+      ],
+      restrictedShift: 'NONE',
     };
 
     const violations = validateAnnualWeekOffConflict(nurse);
@@ -872,7 +877,11 @@ describe('validator.ts - validateAnnualWeekOffConflict', () => {
       id: 'nurse-1',
       name: '간호사1',
       weekOffDay: 'SUN', // 일요일 주휴
-      annualLeaveDates: ['2024-01-07', '2024-01-14'], // 일요일 연차 - 겹침!
+      requestedOffDates: [
+        '2024-01-07', // 일요일 연차 - 겹침!
+        '2024-01-14'
+      ],
+      restrictedShift: 'NONE',
     };
 
     const violations = validateAnnualWeekOffConflict(nurse);
@@ -889,7 +898,11 @@ describe('validator.ts - validateAnnualWeekOffConflict', () => {
       id: 'nurse-2',
       name: '간호사2',
       weekOffDay: 'TUE', // 화요일 주휴
-      annualLeaveDates: ['2024-01-09', '2024-01-16'], // 화요일 연차 - 겹침!
+      requestedOffDates: [
+        '2024-01-09', // 화요일 연차 - 겹침!
+        '2024-01-16'
+      ],
+      restrictedShift: 'NONE',
     };
 
     const violations = validateAnnualWeekOffConflict(nurse);
@@ -904,7 +917,7 @@ describe('validator.ts - validateAnnualWeekOffConflict', () => {
       id: 'nurse-3',
       name: '간호사3',
       weekOffDay: 'MON',
-      annualLeaveDates: [],
+      requestedOffDates: [], restrictedShift: 'NONE' as const,
     };
 
     const violations = validateAnnualWeekOffConflict(nurse);
@@ -917,7 +930,11 @@ describe('validator.ts - validateAnnualWeekOffConflict', () => {
       id: 'nurse-4',
       name: '간호사4',
       weekOffDay: 'WED', // 수요일 주휴
-      annualLeaveDates: ['2024-01-10', '2024-01-11'], // 수요일, 목요일
+      requestedOffDates: [
+        '2024-01-10', // 수요일
+        '2024-01-11'  // 목요일
+      ],
+      restrictedShift: 'NONE',
     };
 
     const violations = validateAnnualWeekOffConflict(nurse);
@@ -930,9 +947,9 @@ describe('validator.ts - validateAnnualWeekOffConflict', () => {
 describe('validator.ts - validateOffDayBalance', () => {
   it('정상 케이스: 휴일 차이가 2일 이하', () => {
     const nurses: Nurse[] = [
-      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
-      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
-      { id: 'nurse-3', name: '간호사3', weekOffDay: 'TUE', annualLeaveDates: [] },
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'nurse-3', name: '간호사3', weekOffDay: 'TUE', requestedOffDates: [], restrictedShift: 'NONE' as const },
     ];
 
     const schedule: ScheduleCell[] = [
@@ -978,8 +995,8 @@ describe('validator.ts - validateOffDayBalance', () => {
 
   it('위반 케이스: 휴일 차이가 3일 (HARD 위반)', () => {
     const nurses: Nurse[] = [
-      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
-      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', requestedOffDates: [], restrictedShift: 'NONE' as const },
     ];
 
     const schedule: ScheduleCell[] = [
@@ -1015,8 +1032,8 @@ describe('validator.ts - validateOffDayBalance', () => {
 
   it('위반 케이스: 휴일 차이가 4일 이상', () => {
     const nurses: Nurse[] = [
-      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
-      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', requestedOffDates: [], restrictedShift: 'NONE' as const },
     ];
 
     const schedule: ScheduleCell[] = [
@@ -1053,8 +1070,8 @@ describe('validator.ts - validateOffDayBalance', () => {
 
   it('정상 케이스: 모든 간호사가 동일한 휴일 수', () => {
     const nurses: Nurse[] = [
-      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
-      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', requestedOffDates: [], restrictedShift: 'NONE' as const },
     ];
 
     const schedule: ScheduleCell[] = [
@@ -1081,7 +1098,7 @@ describe('validator.ts - validateOffDayBalance', () => {
 
   it('엣지 케이스: 간호사 1명', () => {
     const nurses: Nurse[] = [
-      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' as const },
     ];
 
     const schedule: ScheduleCell[] = [
@@ -1096,8 +1113,8 @@ describe('validator.ts - validateOffDayBalance', () => {
 
   it('엣지 케이스: 빈 스케줄', () => {
     const nurses: Nurse[] = [
-      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', annualLeaveDates: [] },
-      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', annualLeaveDates: [] },
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' as const },
+      { id: 'nurse-2', name: '간호사2', weekOffDay: 'MON', requestedOffDates: [], restrictedShift: 'NONE' as const },
     ];
 
     const schedule: ScheduleCell[] = [];
@@ -1180,6 +1197,95 @@ describe('validateMenstrualLeaveLimit', () => {
     const schedule: ScheduleCell[] = [];
 
     const violations = validateMenstrualLeaveLimit('nurse-1', '간호사1', schedule);
+
+    expect(violations).toHaveLength(0);
+  });
+});
+
+describe('validator.ts - validateConsecutiveOffDays', () => {
+  it('정상 케이스: 연속 휴일 (고립 없음)', () => {
+    const nurses: Nurse[] = [
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' },
+    ];
+
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-11-01', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-02', shiftType: 'E', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-03', shiftType: 'OFF', isFixed: false }, // 연속 휴일 시작
+      { nurseId: 'nurse-1', date: '2024-11-04', shiftType: 'WEEK_OFF', isFixed: true }, // 연속 휴일
+      { nurseId: 'nurse-1', date: '2024-11-05', shiftType: 'D', isFixed: false },
+    ];
+
+    const violations = validateConsecutiveOffDays(schedule, nurses);
+
+    expect(violations).toHaveLength(0); // 연속 휴일이므로 위반 없음
+  });
+
+  it('SOFT 위반: 고립된 휴일 (앞뒤가 모두 근무)', () => {
+    const nurses: Nurse[] = [
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' },
+    ];
+
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-11-01', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-02', shiftType: 'OFF', isFixed: false }, // 고립된 휴일!
+      { nurseId: 'nurse-1', date: '2024-11-03', shiftType: 'E', isFixed: false },
+    ];
+
+    const violations = validateConsecutiveOffDays(schedule, nurses);
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].type).toBe('SOFT');
+    expect(violations[0].nurseId).toBe('nurse-1');
+    expect(violations[0].date).toBe('2024-11-02');
+    expect(violations[0].message).toContain('고립된 휴일');
+  });
+
+  it('정상 케이스: 스케줄 시작/끝의 휴일은 고립 아님', () => {
+    const nurses: Nurse[] = [
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' },
+    ];
+
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-11-01', shiftType: 'OFF', isFixed: false }, // 시작날 (전날 없음)
+      { nurseId: 'nurse-1', date: '2024-11-02', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-03', shiftType: 'E', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-04', shiftType: 'OFF', isFixed: false }, // 마지막날 (다음날 없음)
+    ];
+
+    const violations = validateConsecutiveOffDays(schedule, nurses);
+
+    expect(violations).toHaveLength(0); // 시작/끝은 고립으로 간주하지 않음
+  });
+
+  it('SOFT 위반: 여러 고립된 휴일', () => {
+    const nurses: Nurse[] = [
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' },
+    ];
+
+    const schedule: ScheduleCell[] = [
+      { nurseId: 'nurse-1', date: '2024-11-01', shiftType: 'D', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-02', shiftType: 'OFF', isFixed: false }, // 고립1
+      { nurseId: 'nurse-1', date: '2024-11-03', shiftType: 'E', isFixed: false },
+      { nurseId: 'nurse-1', date: '2024-11-04', shiftType: 'ANNUAL', isFixed: true }, // 고립2
+      { nurseId: 'nurse-1', date: '2024-11-05', shiftType: 'N', isFixed: false },
+    ];
+
+    const violations = validateConsecutiveOffDays(schedule, nurses);
+
+    expect(violations).toHaveLength(2); // 2개 고립
+    expect(violations[0].date).toBe('2024-11-02');
+    expect(violations[1].date).toBe('2024-11-04');
+  });
+
+  it('엣지 케이스: 빈 스케줄', () => {
+    const nurses: Nurse[] = [
+      { id: 'nurse-1', name: '간호사1', weekOffDay: 'SUN', requestedOffDates: [], restrictedShift: 'NONE' },
+    ];
+
+    const schedule: ScheduleCell[] = [];
+
+    const violations = validateConsecutiveOffDays(schedule, nurses);
 
     expect(violations).toHaveLength(0);
   });

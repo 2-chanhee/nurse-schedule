@@ -8,9 +8,16 @@ import './App.css';
 type Tab = 'nurses' | 'schedule';
 
 function App() {
-  // localStorage에서 간호사 데이터 로드
+  // localStorage에서 간호사 데이터 로드 및 정규화
   const [nurses, setNurses] = useState<Nurse[]>(() => {
-    return NurseStorage.load<Nurse[]>([]);
+    const loadedNurses = NurseStorage.load<Nurse[]>([]);
+    // 기존 localStorage 데이터 호환성: requestedOffDates를 string[]로 변환
+    return loadedNurses.map(nurse => ({
+      ...nurse,
+      requestedOffDates: (nurse.requestedOffDates || []).map((item: any) =>
+        typeof item === 'string' ? item : item.date
+      )
+    }));
   });
   const [activeTab, setActiveTab] = useState<Tab>('nurses');
 

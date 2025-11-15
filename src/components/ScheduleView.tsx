@@ -344,17 +344,23 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
       const approvedAnnualLeaves: Record<string, string[]> = {};
       const currentRejectedList: RejectedAnnualLeave[] = [];
 
-      // 모든 연차를 수집 (첫 시도에서만)
+      // 모든 쉬는날 신청을 수집 (첫 시도에서만)
       interface AnnualLeaveRequest {
         nurseId: string;
         nurseName: string;
         date: string;
+        type: 'WEEK_OFF' | 'OFF' | 'ANNUAL';
       }
       const allAnnualLeaves: AnnualLeaveRequest[] = [];
       nurses.forEach(nurse => {
-        if (nurse.annualLeaveDates && nurse.annualLeaveDates.length > 0) {
-          nurse.annualLeaveDates.forEach(date => {
-            allAnnualLeaves.push({ nurseId: nurse.id, nurseName: nurse.name, date });
+        if (nurse.requestedOffDates && nurse.requestedOffDates.length > 0) {
+          nurse.requestedOffDates.forEach(date => {
+            allAnnualLeaves.push({
+              nurseId: nurse.id,
+              nurseName: nurse.name,
+              date: date,
+              type: 'ANNUAL' // 신청한 쉬는날은 모두 연차로 처리
+            });
           });
         }
       });
@@ -377,9 +383,9 @@ export default function ScheduleView({ nurses }: ScheduleViewProps) {
       // UI 업데이트를 위해 약간의 지연
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      // 각 연차를 하나씩 검증
+      // 각 쉬는날 신청을 하나씩 검증
       for (const annual of allAnnualLeaves) {
-        // 임시로 이 연차를 승인 목록에 추가
+        // 임시로 이 쉬는날 신청을 승인 목록에 추가
         const tempApproved: Record<string, string[]> = {};
         for (const nurseId in approvedAnnualLeaves) {
           tempApproved[nurseId] = [...approvedAnnualLeaves[nurseId]];

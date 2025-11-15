@@ -125,13 +125,15 @@ describe('Storage Utilities', () => {
           id: 'nurse-1',
           name: '간호사1',
           weekOffDay: 'SUN',
-          annualLeaveDates: ['2024-01-15'],
+          requestedOffDates: ['2024-01-15'],
+          restrictedShift: 'NONE',
         },
         {
           id: 'nurse-2',
           name: '간호사2',
           weekOffDay: 'MON',
-          annualLeaveDates: [],
+          requestedOffDates: [],
+          restrictedShift: 'NONE',
         },
       ];
 
@@ -152,7 +154,8 @@ describe('Storage Utilities', () => {
           id: 'nurse-1',
           name: '간호사1',
           weekOffDay: 'SUN',
-          annualLeaveDates: [],
+          requestedOffDates: [],
+          restrictedShift: 'NONE',
         },
       ];
 

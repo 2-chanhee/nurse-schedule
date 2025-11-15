@@ -1,5 +1,6 @@
 import type { ScheduleCell, ShiftType, Violation, Nurse, DayOfWeek } from '../types';
-import { DAILY_REQUIRED_STAFF, SHIFT_ORDER, MAX_CONSECUTIVE_WORK_DAYS } from '../constants';
+import { SHIFT_TYPE_LABELS } from '../types';
+import { DAILY_REQUIRED_STAFF, SHIFT_ORDER, MAX_CONSECUTIVE_WORK_DAYS, SHIFT_RESTRICTION_LABELS } from '../constants';
 
 /**
  * 1. 일일 필수 인원 검증
@@ -555,7 +556,7 @@ export function validateConsecutiveWorkDays(
 export function validateAnnualWeekOffConflict(nurse: Nurse): Violation[] {
   const violations: Violation[] = [];
 
-  if (!nurse.annualLeaveDates || nurse.annualLeaveDates.length === 0) {
+  if (!nurse.requestedOffDates || nurse.requestedOffDates.length === 0) {
     return violations;
   }
 
@@ -571,9 +572,9 @@ export function validateAnnualWeekOffConflict(nurse: Nurse): Violation[] {
   };
   const weekOffDayNum = dayMap[nurse.weekOffDay];
 
-  // 각 연차 날짜의 요일 확인
-  nurse.annualLeaveDates.forEach((annualDate) => {
-    const date = new Date(annualDate);
+  // 신청한 쉬는날의 요일 확인 (신청한 쉬는날은 모두 ANNUAL로 배정됨)
+  nurse.requestedOffDates.forEach((dateStr) => {
+    const date = new Date(dateStr);
     const annualDayNum = date.getDay();
 
     if (annualDayNum === weekOffDayNum) {
@@ -581,8 +582,8 @@ export function validateAnnualWeekOffConflict(nurse: Nurse): Violation[] {
         type: 'HARD',
         nurseId: nurse.id,
         nurseName: nurse.name,
-        date: annualDate,
-        message: `${nurse.name} - ${annualDate}: 주휴일과 연차가 겹칩니다 (둘 다 ${['일', '월', '화', '수', '목', '금', '토'][weekOffDayNum]}요일)`,
+        date: dateStr,
+        message: `${nurse.name} - ${dateStr}: 주휴일과 연차가 겹칩니다 (둘 다 ${['일', '월', '화', '수', '목', '금', '토'][weekOffDayNum]}요일)`,
       });
     }
   });
@@ -680,6 +681,91 @@ export function validateMenstrualLeaveLimit(
         message: `${nurseName} - ${yearMonth} 월: 생휴 ${dates.length}회 사용 (최대 1회) - 날짜: ${dates.join(', ')}`,
       });
     }
+  });
+
+  return violations;
+}
+
+/**
+ * 11. 근무 타입 제한 검증 (HARD 제약)
+ * 제한된 간호사가 허용되지 않은 근무 타입 배정 시 하드 위반
+ */
+export function validateShiftRestriction(
+  schedule: ScheduleCell[],
+  nurses: Nurse[]
+): Violation[] {
+  const violations: Violation[] = [];
+
+  schedule.forEach((cell) => {
+    const nurse = nurses.find((n) => n.id === cell.nurseId);
+    if (!nurse) return;
+
+    // 휴일은 제한 없음
+    const restTypes: ShiftType[] = ['OFF', 'WEEK_OFF', 'ANNUAL', 'MENSTRUAL'];
+    if (restTypes.includes(cell.shiftType)) return;
+
+    // 근무 타입 제한 체크
+    const restriction = nurse.restrictedShift || 'NONE';
+    if (restriction === 'NONE') return;
+
+    const allowedShift = restriction.replace('_ONLY', '') as ShiftType; // 'D_ONLY' → 'D'
+
+    if (cell.shiftType !== allowedShift) {
+      violations.push({
+        type: 'HARD',
+        nurseId: nurse.id,
+        nurseName: nurse.name,
+        date: cell.date,
+        message: `${nurse.name} - ${cell.date}: ${SHIFT_TYPE_LABELS[cell.shiftType]} 근무 불가 (${SHIFT_RESTRICTION_LABELS[restriction]} 제한)`,
+      });
+    }
+  });
+
+  return violations;
+}
+
+/**
+ * 12. 연속 휴일 선호 검증 (SOFT 제약)
+ * 고립된 휴일(앞뒤가 모두 근무인 휴일)을 소프트 위반으로 경고
+ * 예: D - OFF - D (이런 패턴은 비권장)
+ * 쉬는날은 최대한 연속으로 배치하는 것이 간호사에게 유리
+ */
+export function validateConsecutiveOffDays(
+  schedule: ScheduleCell[],
+  nurses: Nurse[]
+): Violation[] {
+  const violations: Violation[] = [];
+
+  nurses.forEach((nurse) => {
+    const nurseSchedule = schedule
+      .filter((s) => s.nurseId === nurse.id)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // 휴일 타입
+    const offTypes: ShiftType[] = ['OFF', 'WEEK_OFF', 'ANNUAL', 'MENSTRUAL'];
+
+    nurseSchedule.forEach((cell, index) => {
+      // 현재 셀이 휴일인지 확인
+      if (!offTypes.includes(cell.shiftType)) return;
+
+      // 이전 셀과 다음 셀 확인
+      const prevCell = index > 0 ? nurseSchedule[index - 1] : null;
+      const nextCell = index < nurseSchedule.length - 1 ? nurseSchedule[index + 1] : null;
+
+      // 고립된 휴일 체크 (전날도 근무, 다음날도 근무)
+      const prevIsWork = prevCell && !offTypes.includes(prevCell.shiftType);
+      const nextIsWork = nextCell && !offTypes.includes(nextCell.shiftType);
+
+      if (prevIsWork && nextIsWork) {
+        violations.push({
+          type: 'SOFT',
+          nurseId: nurse.id,
+          nurseName: nurse.name,
+          date: cell.date,
+          message: `${nurse.name} - ${cell.date}: 고립된 휴일 (앞뒤가 모두 근무) - 휴일은 연속 배치 권장`,
+        });
+      }
+    });
   });
 
   return violations;
@@ -805,6 +891,14 @@ export function validateSchedule(
     const menstrualLimitViolations = validateMenstrualLeaveLimit(nurse.id, nurse.name, schedule);
     violations.push(...menstrualLimitViolations);
   });
+
+  // 근무 타입 제한 검증 (HARD 제약)
+  const restrictionViolations = validateShiftRestriction(schedule, nurses);
+  violations.push(...restrictionViolations);
+
+  // 연속 휴일 선호 검증 (SOFT 제약)
+  const consecutiveOffViolations = validateConsecutiveOffDays(schedule, nurses);
+  violations.push(...consecutiveOffViolations);
 
   // 🚧 미구현 - 비권장 패턴 검증 (SOFT)
   // nurses.forEach((nurse) => {

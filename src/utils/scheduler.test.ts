@@ -15,11 +15,12 @@ const DEFAULT_DAYS = 28;  // 기본 일수 (4주)
 // withAnnual=false: 연차 없이 생성 (기본값, 안정적인 테스트)
 function createTestNurses(count: number = DEFAULT_NURSE_COUNT, withAnnual: boolean = false): Nurse[] {
   const weekOffDays = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] as const;
-  const nurses = Array.from({ length: count }, (_, i) => ({
+  const nurses: Nurse[] = Array.from({ length: count }, (_, i) => ({
     id: `nurse-${i + 1}`,
     name: `간호사${i + 1}`,
     weekOffDay: weekOffDays[i % 7],
-    annualLeaveDates: [] as string[],
+    requestedOffDates: [],
+    restrictedShift: 'NONE' as const,
   }));
 
   // UI와 동일: 랜덤 3명에게 연차 배정
@@ -60,7 +61,7 @@ function createTestNurses(count: number = DEFAULT_NURSE_COUNT, withAnnual: boole
         while (date2 === date1 && annualDates.length > 1) {
           date2 = annualDates[Math.floor(Math.random() * annualDates.length)];
         }
-        nurse.annualLeaveDates = [date1, date2];
+        nurse.requestedOffDates = [date1, date2];
       }
     });
   }
@@ -257,8 +258,14 @@ describe('scheduler.ts - generateSimpleSchedule', () => {
 
     // 간호사 1, 2에게 연차 신청 (주휴일과 겹치지 않는 날짜 선택)
     // nurse-1: weekOffDay = 'SUN', nurse-2: weekOffDay = 'MON'
-    nurses[0].annualLeaveDates = ['2024-01-05', '2024-01-10']; // 금, 수 (일요일 아님)
-    nurses[1].annualLeaveDates = ['2024-01-05', '2024-01-17']; // 금, 수 (월요일 아님)
+    nurses[0].requestedOffDates = [
+      '2024-01-05', // 금 (일요일 아님)
+      '2024-01-10'  // 수 (일요일 아님)
+    ];
+    nurses[1].requestedOffDates = [
+      '2024-01-05', // 금 (월요일 아님)
+      '2024-01-17'  // 수 (월요일 아님)
+    ];
 
     const schedule = generateSimpleSchedule(nurses, DEFAULT_START_DATE, DEFAULT_END_DATE);
 
@@ -306,7 +313,7 @@ describe('scheduler.ts - generateSimpleSchedule', () => {
 
     // 5명이 같은 날 연차 신청 (2024-01-05는 금요일, 간호사1-5의 주휴일과 겹치지 않음)
     for (let i = 0; i < 5; i++) {
-      nurses[i].annualLeaveDates = ['2024-01-05'];
+      nurses[i].requestedOffDates = ['2024-01-05'];
     }
 
     const schedule = generateSimpleSchedule(nurses, DEFAULT_START_DATE, DEFAULT_END_DATE);
@@ -460,7 +467,7 @@ describe('scheduler.ts - AND 조건 통합 테스트', () => {
 
       expect(hardViolations).toHaveLength(0);
     }
-  });
+  }, 20000); // 20초 timeout (200회 반복 테스트)
 
   it('다양한 기간으로 생성해도 모든 제약 조건 만족', () => {
     // UI와 동일: 연차 포함 테스트

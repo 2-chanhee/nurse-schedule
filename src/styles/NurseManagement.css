@@ -110,7 +110,8 @@
 .btn-save,
 .btn-cancel,
 .btn-edit,
-.btn-delete {
+.btn-delete,
+.btn-add-date {
   padding: 8px 16px;
   border: none;
   border-radius: 6px;
@@ -120,12 +121,14 @@
   transition: all 0.2s;
 }
 
-.btn-add {
+.btn-add,
+.btn-add-date {
   background-color: #10b981;
   color: white;
 }
 
-.btn-add:hover {
+.btn-add:hover,
+.btn-add-date:hover {
   background-color: #059669;
 }
 
@@ -342,4 +345,78 @@
 
 .btn-remove-date:hover {
   color: #dc2626;
+}
+
+/* 쉬는날 신청 섹션 */
+.requested-off-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.requested-off-input {
+  display: flex;
+  gap: 8px;
+}
+
+.requested-off-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.requested-off-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  transition: background-color 0.2s;
+}
+
+.requested-off-item.week_off {
+  background-color: #fef3c7; /* 연한 노란색 */
+  color: #92400e;
+}
+
+.requested-off-item.off {
+  background-color: #dbeafe; /* 연한 파란색 */
+  color: #1e40af;
+}
+
+.requested-off-item.annual {
+  background-color: #d1fae5; /* 연한 초록색 */
+  color: #065f46;
+}
+
+.off-date {
+  font-weight: 500;
+}
+
+.off-type {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+/* 근무 제한 셀렉트 */
+.shift-restriction-select {
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.shift-restriction-select:hover {
+  border-color: #3b82f6;
+}
+
+.shift-restriction-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }

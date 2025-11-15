@@ -4,12 +4,16 @@ export type ShiftType = 'D' | 'M' | 'E' | 'N' | 'OFF' | 'WEEK_OFF' | 'ANNUAL' | 
 // 요일 타입 (일~토)
 export type DayOfWeek = 'SUN' | 'MON' | 'TUE' | 'WED' | 'THU' | 'FRI' | 'SAT';
 
+// 근무 타입 제한
+export type ShiftRestriction = 'NONE' | 'D_ONLY' | 'E_ONLY' | 'N_ONLY';
+
 // 간호사 인터페이스
 export interface Nurse {
   id: string;
   name: string;
   weekOffDay: DayOfWeek; // 주휴일 (일~토 중 1일)
-  annualLeaveDates: string[]; // 연차 날짜 배열 (YYYY-MM-DD 형식)
+  requestedOffDates: string[]; // 쉬는날 신청 날짜 배열 (YYYY-MM-DD)
+  restrictedShift: ShiftRestriction; // 근무 타입 제한
 }
 
 // 스케줄 셀 인터페이스

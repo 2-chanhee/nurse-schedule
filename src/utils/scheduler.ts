@@ -22,7 +22,7 @@ function generateSimpleScheduleInternal(
   randomize: boolean = false,
   fixedCells: ScheduleCell[] = [],
   previousScheduleInfo?: PreviousScheduleInfo,
-  approvedAnnualLeaves?: Record<string, string[]>
+  approvedRequestedOffs?: Record<string, string[]>
 ): ScheduleCell[] {
   // 고정된 셀로 시작
   const schedule: ScheduleCell[] = [...fixedCells];
@@ -77,6 +77,13 @@ function generateSimpleScheduleInternal(
   const nightRestDaysRemaining: Record<string, number> = {};
   nurses.forEach((nurse) => {
     nightRestDaysRemaining[nurse.id] = 0;
+  });
+
+  // 각 간호사의 같은 타입 연속일 (D 또는 E의 연속일)
+  // 예: DDD → 3, DDDE → 0 (E로 전환), EEE → 3
+  const consecutiveSameShiftDays: Record<string, number> = {};
+  nurses.forEach((nurse) => {
+    consecutiveSameShiftDays[nurse.id] = 0;
   });
 
   // 각 간호사의 월별 생휴 사용 횟수 (달력 월 기준: '2024-11' → 11월에 1회)
@@ -139,7 +146,22 @@ function generateSimpleScheduleInternal(
           nightBlockStatus[nurse.id] = Math.min(nightDays, 3);
         }
 
-        // 4. nightRestDaysRemaining: 나이트 블록 종료 후 경과일 계산
+        // 4. consecutiveSameShiftDays: 같은 타입(D 또는 E) 연속일 계산
+        // 마지막 날부터 역순으로 확인하여 D 또는 E가 연속되는지 확인
+        const lastShiftType = sortedSchedule[sortedSchedule.length - 1].shiftType;
+        if (lastShiftType === 'D' || lastShiftType === 'E') {
+          let consecutiveSame = 0;
+          for (let i = sortedSchedule.length - 1; i >= 0; i--) {
+            if (sortedSchedule[i].shiftType === lastShiftType) {
+              consecutiveSame++;
+            } else {
+              break; // 다른 타입 만나면 중단
+            }
+          }
+          consecutiveSameShiftDays[nurse.id] = consecutiveSame;
+        }
+
+        // 5. nightRestDaysRemaining: 나이트 블록 종료 후 경과일 계산
         // 마지막 날부터 역순으로 순회하면서:
         // 1) 먼저 연속된 휴일 개수를 세기
         // 2) 그 이전에 N 블록이 있으면 nightRestDaysRemaining 설정
@@ -229,23 +251,27 @@ function generateSimpleScheduleInternal(
       }
     }
 
-    // 0-1. 연차 배정 (승인된 연차만 고정)
-    // approvedAnnualLeaves가 제공되면 승인된 연차만 배정
-    // 제공되지 않으면 모든 연차를 배정 (이전 동작 유지)
+    // 0-1. 쉬는날 신청 배정 (승인된 쉬는날만 고정)
+    // approvedRequestedOffs가 제공되면 승인된 쉬는날만 배정
+    // 제공되지 않으면 모든 신청을 배정 (이전 동작 유지)
     for (const nurse of nurses) {
       if (assignedNurses.has(nurse.id)) continue; // 이미 배정됨
 
-      // 승인된 연차 목록 확인
-      const approvedDates = approvedAnnualLeaves
-        ? (approvedAnnualLeaves[nurse.id] || [])
-        : (nurse.annualLeaveDates || []);
+      // 승인된 쉬는날 신청 목록 확인
+      const approvedRequests: string[] = approvedRequestedOffs
+        ? (approvedRequestedOffs[nurse.id] || [])
+        : (nurse.requestedOffDates || []);
 
-      if (approvedDates.includes(date)) {
+      const requestForToday = approvedRequests.includes(date);
+
+      if (requestForToday) {
+        // 주휴일과 같은 날이면 skip (이미 주휴일로 배정됨)
+        // 그 외는 모두 ANNUAL로 배정
         schedule.push({
           nurseId: nurse.id,
           date,
           shiftType: 'ANNUAL',
-          isFixed: true, // 연차는 고정
+          isFixed: true, // 쉬는날 신청은 고정
         });
         assignedNurses.add(nurse.id);
         todayShift[nurse.id] = 'ANNUAL';
@@ -402,6 +428,12 @@ function generateSimpleScheduleInternal(
         if (assignedNurses.has(nurse.id)) continue;
         if (nightBlockStatus[nurse.id] !== 0) continue; // 이미 나이트 중이면 스킵
 
+        // 근무 타입 제한 체크
+        const restriction = (nurse.restrictedShift as any) || 'NONE';
+        if (restriction !== 'NONE' && restriction !== 'N_ONLY') {
+          continue;
+        }
+
         // N은 필수 인원이므로 토요일 체크 제외 (필수 인원 충족 우선)
         // N은 필수 인원이므로 연속 근무일만 체크
         if (consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS) {
@@ -450,9 +482,36 @@ function generateSimpleScheduleInternal(
     // 2. 데이 근무 배정 (3명)
     // 고정된 셀에서 이미 D가 몇 명 할당되었는지 카운트
     let dayCount = Object.values(todayShift).filter(shift => shift === 'D').length;
-    for (const nurse of getAvailableNurses()) {
+
+    // 베스트 패턴: DDDEE (근무 타입 전환) > DDDDD (같은 타입 5일)
+    // Priority 1: E→D 전환 (연속성 유지하면서 타입 변경)
+    // Priority 2: D 3일 미만 연속 && 전날 D (D→D 연속, 단 3일 미만)
+    const availableForD = getAvailableNurses();
+    availableForD.sort((a, b) => {
+      // Priority 1: E→D 전환
+      const aWasE = lastShift[a.id] === 'E' ? 1 : 0;
+      const bWasE = lastShift[b.id] === 'E' ? 1 : 0;
+
+      if (aWasE !== bWasE) {
+        return bWasE - aWasE; // E였던 사람 우선
+      }
+
+      // Priority 2: D 3일 미만 연속
+      const aCanContinueD = (lastShift[a.id] === 'D' && consecutiveSameShiftDays[a.id] < 3) ? 1 : 0;
+      const bCanContinueD = (lastShift[b.id] === 'D' && consecutiveSameShiftDays[b.id] < 3) ? 1 : 0;
+
+      return bCanContinueD - aCanContinueD;
+    });
+
+    for (const nurse of availableForD) {
       if (dayCount >= DAILY_REQUIRED_STAFF.D) break;
       if (assignedNurses.has(nurse.id)) continue;
+
+      // 근무 타입 제한 체크
+      const restriction = (nurse.restrictedShift as any) || 'NONE';
+      if (restriction !== 'NONE' && restriction !== 'D_ONLY') {
+        continue;
+      }
 
       // D는 필수 인원이므로 연속 근무일만 체크
       if (consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS) {
@@ -472,6 +531,13 @@ function generateSimpleScheduleInternal(
         todayShift[nurse.id] = 'D';
         workCount[nurse.id]++;
         dayCount++;
+
+        // 같은 타입 연속일 업데이트
+        if (last === 'D') {
+          consecutiveSameShiftDays[nurse.id]++;
+        } else {
+          consecutiveSameShiftDays[nurse.id] = 1; // 새로운 D 블록 시작
+        }
       }
     }
 
@@ -509,9 +575,36 @@ function generateSimpleScheduleInternal(
     // 4. 이브닝 근무 배정 (3명) - 최후 배정 (조건이 가장 유연하므로 마지막)
     // 고정된 셀에서 이미 E가 몇 명 할당되었는지 카운트
     let eveningCount = Object.values(todayShift).filter(shift => shift === 'E').length;
-    for (const nurse of getAvailableNurses()) {
+
+    // 베스트 패턴: EEEDD (근무 타입 전환) > EEEEE (같은 타입 5일)
+    // Priority 1: D→E 전환 (연속성 유지하면서 타입 변경)
+    // Priority 2: E 3일 미만 연속 && 전날 E (E→E 연속, 단 3일 미만)
+    const availableForE = getAvailableNurses();
+    availableForE.sort((a, b) => {
+      // Priority 1: D→E 전환
+      const aWasD = lastShift[a.id] === 'D' ? 1 : 0;
+      const bWasD = lastShift[b.id] === 'D' ? 1 : 0;
+
+      if (aWasD !== bWasD) {
+        return bWasD - aWasD; // D였던 사람 우선
+      }
+
+      // Priority 2: E 3일 미만 연속
+      const aCanContinueE = (lastShift[a.id] === 'E' && consecutiveSameShiftDays[a.id] < 3) ? 1 : 0;
+      const bCanContinueE = (lastShift[b.id] === 'E' && consecutiveSameShiftDays[b.id] < 3) ? 1 : 0;
+
+      return bCanContinueE - aCanContinueE;
+    });
+
+    for (const nurse of availableForE) {
       if (eveningCount >= DAILY_REQUIRED_STAFF.E) break;
       if (assignedNurses.has(nurse.id)) continue;
+
+      // 근무 타입 제한 체크
+      const restriction = (nurse.restrictedShift as any) || 'NONE';
+      if (restriction !== 'NONE' && restriction !== 'E_ONLY') {
+        continue;
+      }
 
       // E는 필수 인원이므로 연속 근무일만 체크
       if (consecutiveWorkDays[nurse.id] >= MAX_CONSECUTIVE_WORK_DAYS) {
@@ -533,12 +626,20 @@ function generateSimpleScheduleInternal(
         todayShift[nurse.id] = 'E';
         workCount[nurse.id]++;
         eveningCount++;
+
+        // 같은 타입 연속일 업데이트
+        if (last === 'E') {
+          consecutiveSameShiftDays[nurse.id]++;
+        } else {
+          consecutiveSameShiftDays[nurse.id] = 1; // 새로운 E 블록 시작
+        }
       }
     }
 
     // 5. 나머지는 OFF 배정
     // 주간 OFF가 0인 간호사에게 우선 OFF 배정 (항상 적용)
     // 추가: 휴일 공평 분배를 위해 totalOffDays 적은 사람 우선
+    // 추가: 연속 휴일 선호를 위해 전날이 휴일인 사람 우선
     const needsOff: Nurse[] = [];
     const others: Nurse[] = [];
 
@@ -553,9 +654,32 @@ function generateSimpleScheduleInternal(
       }
     }
 
-    // 휴일 공평 분배: others 그룹만 totalOffDays 기준으로 정렬
-    // needsOff 그룹은 주간 OFF 규칙 준수를 위해 정렬하지 않음 (우선순위 최고)
-    others.sort((a, b) => totalOffDays[a.id] - totalOffDays[b.id]);
+    // 휴일 타입 정의 (연속 휴일 판단용)
+    const offTypes: ShiftType[] = ['OFF', 'WEEK_OFF', 'ANNUAL', 'MENSTRUAL'];
+
+    // needsOff 그룹도 연속 휴일 선호를 위해 정렬
+    // 전날이 휴일인 사람 우선
+    needsOff.sort((a, b) => {
+      const aYesterday = lastShift[a.id] && offTypes.includes(lastShift[a.id]) ? 1 : 0;
+      const bYesterday = lastShift[b.id] && offTypes.includes(lastShift[b.id]) ? 1 : 0;
+      return bYesterday - aYesterday; // 휴일 우선
+    });
+
+    // 휴일 공평 분배 + 연속 휴일 선호: others 그룹 정렬
+    // 1순위: 전날이 휴일인 사람 (연속 휴일 만들기)
+    // 2순위: totalOffDays 적은 사람
+    others.sort((a, b) => {
+      const aYesterday = lastShift[a.id] && offTypes.includes(lastShift[a.id]) ? 1 : 0;
+      const bYesterday = lastShift[b.id] && offTypes.includes(lastShift[b.id]) ? 1 : 0;
+
+      // 전날이 휴일인 사람 우선
+      if (aYesterday !== bYesterday) {
+        return bYesterday - aYesterday; // 휴일 1, 근무 0 → 휴일 우선
+      }
+
+      // 전날 상태가 같으면 totalOffDays 적은 사람 우선
+      return totalOffDays[a.id] - totalOffDays[b.id];
+    });
 
     // 주간 OFF 필요한 사람 우선 OFF 배정 (weeklyOffCount === 0)
     for (const nurse of needsOff) {
@@ -699,8 +823,8 @@ export function generatePreviousSchedule(
  * @param randomize - true일 경우 매번 다른 스케줄 생성 (UI용), false일 경우 동일한 결과 (테스트용, 기본값)
  * @param fixedCells - 고정된 셀 목록 (재생성 시 유지됨)
  * @param previousScheduleInfo - 이전 4일 스케줄 정보 (제약 조건 검증에 사용)
- * @param approvedAnnualLeaves - 승인된 연차 목록 (nurseId -> 날짜 배열), undefined이면 모든 연차 포함
- * @param maxAttempts - 최대 시도 횟수 (기본값: 150, OFF ≤ 2 제약으로 난이도 증가)
+ * @param approvedRequestedOffs - 승인된 쉬는날 신청 목록 (nurseId -> string[]), undefined이면 모든 신청 포함
+ * @param maxAttempts - 최대 시도 횟수 (기본값: 200)
  */
 export function generateSimpleSchedule(
   nurses: Nurse[],
@@ -709,7 +833,7 @@ export function generateSimpleSchedule(
   randomize: boolean = false,
   fixedCells: ScheduleCell[] = [],
   previousScheduleInfo?: PreviousScheduleInfo,
-  approvedAnnualLeaves?: Record<string, string[]>,
+  approvedRequestedOffs?: Record<string, string[]>,
   maxAttempts: number = 200 // 백트래킹 횟수를 200회로 증가하여 성공률 향상
 ): ScheduleCell[] {
   // 백트래킹: 하드 제약 조건을 모두 만족할 때까지 여러 번 시도
@@ -724,7 +848,7 @@ export function generateSimpleSchedule(
       useRandomize,
       fixedCells,
       previousScheduleInfo,
-      approvedAnnualLeaves
+      approvedRequestedOffs
     );
 
     // 하드 제약 조건 검증
@@ -756,6 +880,6 @@ export function generateSimpleSchedule(
     true, // 강제 randomize
     fixedCells,
     previousScheduleInfo,
-    approvedAnnualLeaves
+    approvedRequestedOffs
   );
 }

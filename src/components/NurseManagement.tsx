@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import type { Nurse, DayOfWeek } from '../types';
+import type { Nurse, DayOfWeek, ShiftRestriction } from '../types';
 import { DAYS_OF_WEEK, DAY_OF_WEEK_LABELS } from '../types';
-import { DEFAULT_NURSE_COUNT } from '../constants';
+import { DEFAULT_NURSE_COUNT, SHIFT_RESTRICTION_LABELS } from '../constants';
 import { clearAllStorage, DateRangeStorage } from '../utils/storage';
 import '../styles/NurseManagement.css';
 
@@ -13,6 +13,9 @@ interface NurseManagementProps {
 export default function NurseManagement({ nurses, onNursesChange }: NurseManagementProps) {
   const [name, setName] = useState('');
   const [weekOffDay, setWeekOffDay] = useState<DayOfWeek>('SUN');
+
+  // 각 간호사별 선택한 날짜 임시 저장
+  const [selectedDates, setSelectedDates] = useState<Record<string, string>>({});
 
   // 스케줄 날짜 범위 (localStorage에서 읽기)
   const [scheduleDateRange, setScheduleDateRange] = useState<{ start: string; end: string } | null>(null);
@@ -32,12 +35,12 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
     for (let i = 0; i < DEFAULT_NURSE_COUNT; i++) {
       const weekOffDay = DAYS_OF_WEEK[i % DAYS_OF_WEEK.length];
 
-      // 연차는 자동 배정하지 않음 (사용자가 직접 신청하거나, 시스템이 강제 배정)
       defaultNurses.push({
         id: `nurse-${i + 1}`,
         name: `간호사 ${i + 1}`,
         weekOffDay,
-        annualLeaveDates: [], // 빈 배열로 시작
+        requestedOffDates: [], // 빈 배열로 시작
+        restrictedShift: 'NONE', // 제한 없음
       });
     }
     onNursesChange(defaultNurses);
@@ -61,7 +64,8 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
       id: `nurse-${Date.now()}`,
       name: name.trim(),
       weekOffDay,
-      annualLeaveDates: [], // 연차 날짜 초기화
+      requestedOffDates: [], // 쉬는날 신청 초기화
+      restrictedShift: 'NONE', // 제한 없음
     };
 
     onNursesChange([...nurses, newNurse]);
@@ -89,7 +93,7 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
     onNursesChange(updatedNurses);
   };
 
-  const handleAddAnnualLeave = (id: string, date: string) => {
+  const handleAddRequestedOff = (id: string, date: string) => {
     if (!date) return;
 
     // 해당 간호사 찾기
@@ -99,43 +103,54 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
     // 스케줄 날짜 범위 검증
     if (scheduleDateRange) {
       if (date < scheduleDateRange.start || date > scheduleDateRange.end) {
-        alert(`❌ 연차는 스케줄 범위(${scheduleDateRange.start} ~ ${scheduleDateRange.end}) 내에서만 신청 가능합니다.`);
+        alert(`❌ 쉬는날은 스케줄 범위(${scheduleDateRange.start} ~ ${scheduleDateRange.end}) 내에서만 신청 가능합니다.`);
         return;
       }
     }
 
-    // 선택한 날짜의 요일 계산
-    const selectedDate = new Date(date);
-    const dayMap: Record<number, DayOfWeek> = {
-      0: 'SUN',
-      1: 'MON',
-      2: 'TUE',
-      3: 'WED',
-      4: 'THU',
-      5: 'FRI',
-      6: 'SAT',
-    };
-    const selectedDayOfWeek = dayMap[selectedDate.getDay()];
-
-    // 주휴일과 겹치는지 확인
-    if (selectedDayOfWeek === nurse.weekOffDay) {
-      alert(`❌ 주휴일(${DAY_OF_WEEK_LABELS[nurse.weekOffDay]}요일)과 연차는 겹칠 수 없습니다.\n다른 요일을 선택해주세요.`);
+    // 이미 신청한 날짜인지 확인 (기존 데이터 호환성 고려)
+    const existingDates = (nurse.requestedOffDates || []).map((item: any) =>
+      typeof item === 'string' ? item : item.date
+    );
+    if (existingDates.includes(date)) {
+      alert('❌ 이미 신청한 날짜입니다.');
       return;
     }
 
+    // 날짜만 추가 (타입은 스케줄 생성 시 자동 결정)
     const updatedNurses = nurses.map((n) =>
       n.id === id
-        ? { ...n, annualLeaveDates: [...n.annualLeaveDates, date].sort() }
+        ? {
+            ...n,
+            requestedOffDates: [
+              ...(n.requestedOffDates || []).map((item: any) =>
+                typeof item === 'string' ? item : item.date
+              ),
+              date
+            ].sort(),
+          }
         : n
     );
     onNursesChange(updatedNurses);
   };
 
-  const handleRemoveAnnualLeave = (id: string, date: string) => {
+  const handleRemoveRequestedOff = (id: string, date: string) => {
     const updatedNurses = nurses.map((nurse) =>
       nurse.id === id
-        ? { ...nurse, annualLeaveDates: nurse.annualLeaveDates.filter((d) => d !== date) }
+        ? {
+            ...nurse,
+            requestedOffDates: (nurse.requestedOffDates || [])
+              .map((item: any) => (typeof item === 'string' ? item : item.date))
+              .filter((d) => d !== date)
+          }
         : nurse
+    );
+    onNursesChange(updatedNurses);
+  };
+
+  const handleShiftRestrictionChange = (id: string, restriction: ShiftRestriction) => {
+    const updatedNurses = nurses.map((nurse) =>
+      nurse.id === id ? { ...nurse, restrictedShift: restriction } : nurse
     );
     onNursesChange(updatedNurses);
   };
@@ -198,7 +213,8 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
                 <th>번호</th>
                 <th>이름</th>
                 <th>주휴일</th>
-                <th>연차 신청</th>
+                <th>쉬는날 신청</th>
+                <th>근무 제한</th>
                 <th>작업</th>
               </tr>
             </thead>
@@ -228,37 +244,71 @@ export default function NurseManagement({ nurses, onNursesChange }: NurseManagem
                     </select>
                   </td>
                   <td>
-                    <div className="annual-leave-section">
-                      <div className="annual-leave-input">
+                    <div className="requested-off-section">
+                      <div className="requested-off-input">
                         <input
                           type="date"
-                          key={`${nurse.id}-${nurse.annualLeaveDates.length}`}
+                          value={selectedDates[nurse.id] || ''}
                           min={scheduleDateRange?.start || undefined}
                           max={scheduleDateRange?.end || undefined}
                           onChange={(e) => {
-                            if (e.target.value) {
-                              handleAddAnnualLeave(nurse.id, e.target.value);
-                            }
+                            setSelectedDates({
+                              ...selectedDates,
+                              [nurse.id]: e.target.value,
+                            });
                           }}
                           className="date-input"
                         />
+                        <button
+                          onClick={() => {
+                            const date = selectedDates[nurse.id];
+                            if (date) {
+                              handleAddRequestedOff(nurse.id, date);
+                              // 추가 성공 후 input 초기화
+                              setSelectedDates({
+                                ...selectedDates,
+                                [nurse.id]: '',
+                              });
+                            }
+                          }}
+                          className="btn-add-date"
+                        >
+                          추가
+                        </button>
                       </div>
-                      {nurse.annualLeaveDates.length > 0 && (
-                        <div className="annual-leave-list">
-                          {nurse.annualLeaveDates.map((date) => (
-                            <div key={date} className="annual-leave-item">
-                              <span>{date}</span>
-                              <button
-                                onClick={() => handleRemoveAnnualLeave(nurse.id, date)}
-                                className="btn-remove-date"
-                              >
-                                ×
-                              </button>
-                            </div>
-                          ))}
+                      {(nurse.requestedOffDates || []).length > 0 && (
+                        <div className="requested-off-list">
+                          {(nurse.requestedOffDates || []).map((item) => {
+                            // 기존 localStorage 데이터 호환성: {date, type} 객체 → 문자열 변환
+                            const date = typeof item === 'string' ? item : (item as any).date;
+                            return (
+                              <div key={date} className="requested-off-item">
+                                <span className="off-date">{date}</span>
+                                <button
+                                  onClick={() => handleRemoveRequestedOff(nurse.id, date)}
+                                  className="btn-remove-date"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
+                  </td>
+                  <td>
+                    <select
+                      value={nurse.restrictedShift || 'NONE'}
+                      onChange={(e) => handleShiftRestrictionChange(nurse.id, e.target.value as ShiftRestriction)}
+                      className="shift-restriction-select"
+                    >
+                      {Object.entries(SHIFT_RESTRICTION_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td>
                     <button onClick={() => handleDelete(nurse.id)} className="btn-delete">

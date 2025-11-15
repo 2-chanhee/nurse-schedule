@@ -1,4 +1,4 @@
-import type { ShiftType } from './types';
+import type { ShiftType, ShiftRestriction } from './types';
 
 // 일일 필수 인원
 export const DAILY_REQUIRED_STAFF: Record<ShiftType, number> = {
@@ -47,3 +47,11 @@ export const SHIFT_COLORS: Record<ShiftType, string> = {
 
 // 기본 간호사 수
 export const DEFAULT_NURSE_COUNT = 15;
+
+// 근무 타입 제한 레이블
+export const SHIFT_RESTRICTION_LABELS: Record<ShiftRestriction, string> = {
+  NONE: '제한 없음',
+  D_ONLY: '데이만',
+  E_ONLY: '이브닝만',
+  N_ONLY: '나이트만',
+};
